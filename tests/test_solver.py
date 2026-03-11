@@ -274,6 +274,9 @@ class TestResultExtraction:
         total = sum(x_vals.values())
         assert abs(total - 6.0) < 1e-4
 
+        # ensure the solution dictionary does not accidentally include set components
+        assert "I" not in result.solution
+
     @patch('src.solver.SolverFactory')
     def test_extract_with_threshold(self, mock_factory, indexed_model):
         """Test extracting variables with value threshold."""
@@ -316,6 +319,23 @@ class TestResultExtraction:
 
         with pytest.raises(KeyError):
             extract_variable_values(result.model, "nonexistent_var")
+
+    @patch('src.solver.SolverFactory')
+    def test_uninitialized_variable_in_solution(self, mock_factory, simple_lp_model):
+        """Uninitialized scalar variables should appear as None in the solution dict."""
+        mock_solver = Mock()
+        mock_solver.available.return_value = True
+        mock_factory.return_value = mock_solver
+        mock_results = Mock()
+        mock_results.solver.status = "ok"
+        mock_results.solver.termination_condition = "optimal"
+        mock_solver.solve.return_value = mock_results
+
+        # only initialize x, leave y unset
+        simple_lp_model.x.set_value(5.0)
+        result = solve_model(simple_lp_model, solver_name="glpk")
+        # solution should include y with None value rather than raising
+        assert result.solution.get("y") is None
 
 
 class TestSerialization:

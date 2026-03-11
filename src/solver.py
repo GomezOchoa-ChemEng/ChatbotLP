@@ -238,47 +238,43 @@ def solve_model(
 
 
 def _extract_solution(model: ConcreteModel) -> Dict[str, Any]:
-    """Extract all variable values from a solved Pyomo model.
+    """Extract all Pyomo Var values from a model.
 
-    Returns a nested dictionary mapping variable names to their values,
-    indexed by dimension keys if applicable.
+    Only :class:`~pyomo.core.base.var.Var` components are considered; sets,
+    parameters, and other objects are ignored.  Uninitialized variables are
+    handled gracefully: if obtaining a numeric value raises an exception the
+    value ``None`` is recorded rather than propagating the error.
 
     Args:
-        model: A Pyomo ConcreteModel after solve.
+        model: A Pyomo ConcreteModel (solved or unsolved).
 
     Returns:
-        Dict[str, Any]: Flattened representation of all variable values.
-                        For indexed variables, returns {var_name: {index: value, ...}}.
-                        For scalar variables, returns {var_name: value}.
-
-    Example:
-        >>> solution = _extract_solution(model)
-        >>> solution["q"]  # if q is indexed by bid id
-        {"bid_1": 10.5, "bid_2": 20.3, ...}
+        A dictionary mapping variable names to either a scalar or a nested
+        index-&gt;value mapping.  Indexed variables produce a sub-dictionary
+        where each key is the stringified index and the value is the variable
+        value or ``None``.
     """
-    solution = {}
+    from pyomo.core.base.var import Var
 
-    # Iterate over all variables in the model
-    for var in model.component_objects(ctype=None):
-        # Only extract Var objects
-        if not hasattr(var, "is_indexed"):
-            continue
+    solution: Dict[str, Any] = {}
 
-        var_name = var.name
+    # iterate only over Var objects to avoid sets or other components
+    for var in model.component_objects(Var, descend_into=True):
+        name = var.name
         if var.is_indexed():
-            # Indexed variable: extract all indices and values
-            var_dict = {}
+            sub: Dict[str, Any] = {}
             for idx in var:
-                val = value(var[idx])
-                # Convert tuple indices to list for JSON serialization
-                idx_key = idx if isinstance(idx, str) else (idx,) if not isinstance(idx, tuple) else idx
-                idx_str = idx_key if isinstance(idx_key, str) else str(idx_key)
-                var_dict[idx_str] = val
-            solution[var_name] = var_dict
+                try:
+                    val = value(var[idx])
+                except Exception:
+                    val = None
+                sub[str(idx)] = val
+            solution[name] = sub
         else:
-            # Scalar variable
-            solution[var_name] = value(var)
-
+            try:
+                solution[name] = value(var)
+            except Exception:
+                solution[name] = None
     return solution
 
 
