@@ -186,8 +186,32 @@ class ResponseGenerator:
         return "Full Solution:\n" + "\n".join(response_parts)
 
 
-def generate_response(mode: str, context: Dict[str, Any]) -> str:
-    """Convenience function to generate a response."""
+def generate_response(
+    mode: str,
+    context: Dict[str, Any],
+    use_llm: bool = False,
+) -> str:
+    """Convenience function to generate a response.
+
+    Args:
+        mode: One of "hint", "guided", or "full".
+        context: Context dictionary as expected by ``ResponseGenerator``.
+        use_llm: If True, the registered LLM provider will be asked for an
+            ``ExplanationGenerator``.  If that implementation raises an
+            exception we fall back to the rule-based generator.
+    """
+    if use_llm:
+        # acquire LLM generator from registry
+        try:
+            from .llm_adapter import LLMProviderRegistry
+
+            provider = LLMProviderRegistry.get_instance()
+            llm_gen = provider.get_explanation_generator()
+            return llm_gen.generate(mode, context)
+        except Exception:
+            # fallback to rule-based on any failure
+            pass
+
     generator = ResponseGenerator()
     return generator.generate_response(mode, context)
 

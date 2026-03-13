@@ -171,6 +171,66 @@ class TestScenario:
         assert not result["success"]
 
 
+class TestChatbotEngineLLMIntegration:
+    """Focus tests on optional LLM integration paths."""
+
+    def test_intent_classification_with_llm(self):
+        from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+        from unittest.mock import Mock
+        registry = LLMProviderRegistry.get_instance()
+        registry.reset()
+
+        # provider that always returns "solve"
+        provider = RuleBasedProvider(
+            intent_router=Mock(detect_intent=Mock(return_value="solve")),
+            parse_function=lambda t: {},
+            generate_function=lambda mode, ctx: "",
+        )
+        registry.set_provider(provider)
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "random text", use_llm=True)
+        assert result["intent"] == "solve"
+
+        registry.reset()
+
+    def test_parser_with_llm_in_chatbot(self):
+        from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+        from unittest.mock import Mock
+        registry = LLMProviderRegistry.get_instance()
+        registry.reset()
+
+        # provider that returns node LLM1 and classifies as problem_formulation
+        provider = RuleBasedProvider(
+            intent_router=Mock(detect_intent=Mock(return_value="problem_formulation")),
+            parse_function=lambda t: {"nodes":[{"id":"LLM1","name":"LLM1"}],"products":[],"suppliers":[],"consumers":[],"transport_links":[],"technologies":[],"bids":[]},
+            generate_function=lambda mode, ctx: "",
+        )
+        registry.set_provider(provider)
+        state = ProblemState()
+        result = run_chatbot_session(state, "ignored text", use_llm=True)
+        assert any(n.id == "LLM1" for n in result["state"].nodes)
+
+        registry.reset()
+
+    def test_response_with_llm_in_chatbot(self):
+        from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+        from unittest.mock import Mock
+        registry = LLMProviderRegistry.get_instance()
+        registry.reset()
+
+        provider = RuleBasedProvider(
+            intent_router=Mock(detect_intent=Mock(return_value="validation")),
+            parse_function=lambda t: {},
+            generate_function=lambda mode, ctx: "LLM response",
+        )
+        registry.set_provider(provider)
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "Validate please", use_llm=True)
+        assert result["response"] == "LLM response"
+
+        registry.reset()
+
+
 class TestExplanation:
     """Test explanation/help workflow."""
 

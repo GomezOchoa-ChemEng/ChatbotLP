@@ -104,6 +104,7 @@ def run_chatbot_session(
     state: ProblemState,
     user_message: str,
     mode: str = "guided",
+    use_llm: bool = False,
 ) -> Dict[str, Any]:
     """Execute a single chatbot session turn.
 
@@ -120,7 +121,17 @@ def run_chatbot_session(
             - "success": whether processing succeeded
     """
     router = IntentRouter()
-    intent = router.detect_intent(user_message)
+    # determine intent potentially using LLM classifier
+    if use_llm:
+        try:
+            from .llm_adapter import LLMProviderRegistry
+
+            classifier = LLMProviderRegistry.get_instance().get_intent_classifier()
+            intent = classifier.classify(user_message)
+        except Exception:
+            intent = router.detect_intent(user_message)
+    else:
+        intent = router.detect_intent(user_message)
     result = {
         "state": state,
         "response": "",
@@ -131,7 +142,7 @@ def run_chatbot_session(
     try:
         if intent == "problem_formulation":
             # Parse text and incorporate entities into state
-            parsed = parse_supply_chain_text(user_message)
+            parsed = parse_supply_chain_text(user_message, use_llm=use_llm)
             if any(parsed.values()):  # Only apply if something was parsed
                 incorporate_parsed_entities(state, parsed)
                 result["response"] = f"Added entities to the problem. Current state has {len(state.nodes)} node(s), {len(state.products)} product(s), {len(state.suppliers)} supplier(s), {len(state.consumers)} consumer(s)."
@@ -150,7 +161,7 @@ def run_chatbot_session(
                 "solver_ready": diag.get("solver_ready", False),
                 "benchmark_compatibility": diag.get("benchmark_compatibility", {}),
             }
-            response = generate_response(mode, {"type": "validation", **context})
+            response = generate_response(mode, {"type": "validation", **context}, use_llm=use_llm)
             result["response"] = response
             result["success"] = True
 
@@ -166,7 +177,7 @@ def run_chatbot_session(
                 "message": solve_result.message,
                 "solution": solve_result.solution,
             }
-            response = generate_response(mode, {"type": "solve", **context})
+            response = generate_response(mode, {"type": "solve", **context}, use_llm=use_llm)
             result["response"] = response
             result["success"] = solve_result.success
 
@@ -183,7 +194,7 @@ def run_chatbot_session(
                     for c in checks
                 ],
             }
-            response = generate_response(mode, {"type": "theorem_check", **context})
+            response = generate_response(mode, {"type": "theorem_check", **context}, use_llm=use_llm)
             result["response"] = response
             result["success"] = True
 
@@ -212,7 +223,7 @@ def run_chatbot_session(
                     "change_spec": change_spec,
                     "base_count": {"suppliers": len(state.suppliers), "bids": len(state.bids)},
                 }
-                response = generate_response(mode, {"type": "scenario", **context})
+                response = generate_response(mode, {"type": "scenario", **context}, use_llm=use_llm)
                 result["response"] = response
                 result["success"] = True
             else:
@@ -230,7 +241,7 @@ def run_chatbot_session(
                     "bids": len(state.bids),
                 },
             }
-            response = generate_response(mode, {"type": "explanation", **context})
+            response = generate_response(mode, {"type": "explanation", **context}, use_llm=use_llm)
             result["response"] = response
             result["success"] = True
 

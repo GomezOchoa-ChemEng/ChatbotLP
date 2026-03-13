@@ -114,3 +114,59 @@ def test_case_insensitive():
     assert len(entities["nodes"]) == 1
     assert len(entities["products"]) == 1
     assert len(entities["suppliers"]) == 1
+
+
+def test_parse_with_llm_enabled():
+    """Ensure LLM provider is used when `use_llm=True`."""
+    from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+    from unittest.mock import Mock
+
+    # Create a provider whose parser returns a distinctive result
+    def fake_parse(text):
+        return {
+            "nodes": [{"id": "LLM_NODE", "name": "LLM_NODE"}],
+            "products": [],
+            "suppliers": [],
+            "consumers": [],
+            "transport_links": [],
+            "technologies": [],
+            "bids": [],
+        }
+
+    provider = RuleBasedProvider(
+        intent_router=Mock(),
+        parse_function=fake_parse,
+        generate_function=lambda mode, ctx: "",
+    )
+    registry = LLMProviderRegistry.get_instance()
+    registry.set_provider(provider)
+
+    entities = parse_supply_chain_text("irrelevant text", use_llm=True)
+    assert len(entities["nodes"]) == 1
+    assert entities["nodes"][0]["id"] == "LLM_NODE"
+
+    # Clean up registry state
+    registry.reset()
+
+
+def test_parse_llm_fallback_on_error():
+    """If LLM parser fails, fall back to rule-based parsing."""
+    from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+    from unittest.mock import Mock
+
+    def broken_parse(text):
+        raise RuntimeError("parser crashed")
+
+    provider = RuleBasedProvider(
+        intent_router=Mock(),
+        parse_function=broken_parse,
+        generate_function=lambda mode, ctx: "",
+    )
+    registry = LLMProviderRegistry.get_instance()
+    registry.set_provider(provider)
+
+    # Should not raise despite LLM parser error
+    entities = parse_supply_chain_text("Node Z", use_llm=True)
+    assert entities["nodes"] and entities["nodes"][0]["id"] == "Z"
+
+    registry.reset()

@@ -132,11 +132,38 @@ class RuleBasedParser:
         return entities
 
 
-def parse_supply_chain_text(text: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Convenience function to parse supply chain text using the rule-based parser.
+def parse_supply_chain_text(
+    text: str,
+    use_llm: bool = False,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Parse supply chain text.
 
-    This is the main entry point for parsing natural language descriptions.
+    By default this uses the rule-based parser implemented in this module.
+    If ``use_llm`` is True, the active provider from the ``LLMProviderRegistry``
+    will be queried for a ``SupplyChainParser`` implementation.  This allows
+    optional LLM-based parsing without changing the caller.
+
+    Args:
+        text: Natural language description of a supply chain problem.
+        use_llm: If True, attempt to parse using the registered provider.
+
+    Returns:
+        A dictionary of entity lists.  Keys are guaranteed to exist and map to
+        lists (possibly empty).
     """
+
+    if use_llm:
+        # Defer import to avoid circular dependencies when LLM layer is unused
+        from .llm_adapter import LLMProviderRegistry
+
+        provider = LLMProviderRegistry.get_instance()
+        parser_impl = provider.get_parser()
+        try:
+            return parser_impl.parse(text)
+        except Exception:
+            # Fallback to rule-based if LLM parser fails for any reason
+            pass
+
     parser = RuleBasedParser()
     return parser.parse_entities(text)
 
