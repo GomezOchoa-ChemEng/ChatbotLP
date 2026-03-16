@@ -20,15 +20,6 @@ class GeminiExplanationProvider(ExplanationGenerator):
     """Gemini-based explanation generator using Google Gemini API."""
 
     def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
-        """Initialize the Gemini generator.
-
-        Args:
-            model_name: The Gemini model to use. Defaults to gemini-2.5-flash-lite.
-
-        Raises:
-            ImportError: If google-generativeai is not installed.
-            ValueError: If GEMINI_API_KEY environment variable is not set.
-        """
         try:
             import google.generativeai as genai
         except ImportError:
@@ -50,19 +41,6 @@ class GeminiExplanationProvider(ExplanationGenerator):
         self.model_name = model_name
 
     def generate(self, mode: str, context: Dict[str, Any]) -> str:
-        """Generate an explanation using Gemini.
-
-        Args:
-            mode: Response disclosure level ("hint", "guided", or "full").
-            context: Problem state and analysis results.
-
-        Returns:
-            A natural language explanation appropriate for the mode.
-
-        Raises:
-            ValueError: If mode is invalid.
-            RuntimeError: If Gemini API call fails.
-        """
         if mode not in ("hint", "guided", "full"):
             raise ValueError(
                 f"Invalid mode: {mode}. Must be 'hint', 'guided', or 'full'"
@@ -77,7 +55,6 @@ class GeminiExplanationProvider(ExplanationGenerator):
             raise RuntimeError(f"Gemini API call failed: {e}") from e
 
     def _safe_json(self, obj: Any) -> str:
-        """Serialize objects safely for prompt injection."""
         if obj is None:
             return "None"
 
@@ -105,7 +82,6 @@ class GeminiExplanationProvider(ExplanationGenerator):
             return str(obj)
 
     def _build_prompt(self, mode: str, context: Dict[str, Any]) -> str:
-        """Build a domain-grounded prompt for Gemini."""
         user_message = context.get("user_message", "")
         intent = context.get("intent", "")
         problem_state = context.get("problem_state", None)
@@ -122,27 +98,28 @@ class GeminiExplanationProvider(ExplanationGenerator):
 
         mode_instruction = {
             "hint": (
-                "Provide a short, domain-specific hint. Do not give the full solution. "
-                "Use the actual model data and coordinated supply chain terminology."
+                "Provide a short, domain-specific hint tied to the supplied coordinated supply chain model. "
+                "Do not give a full solution. Do not invent a different scenario."
             ),
             "guided": (
-                "Provide a guided explanation of the actual model instance. "
-                "Explain the roles of suppliers, consumers, bids, nodes, products, "
-                "transport links, and technologies if present. Stay tied to the "
-                "provided problem data."
+                "Provide a guided explanation of the supplied coordinated supply chain model using the actual data in problem_state. "
+                "Explain the roles of suppliers, consumers, bids, nodes, products, transport links, and technologies if present. "
+                "Do NOT turn the response into a generic teaching exercise. "
+                "Do NOT ask the user unrelated questions. "
+                "Stay tied to the actual entity IDs and actual problem data."
             ),
             "full": (
-                "Provide a full domain-specific explanation of the actual model instance. "
-                "Explain the economic interpretation, coordinated market-clearing logic, "
-                "and, if available, the meaning of the solution results."
+                "Provide a full explanation of the supplied coordinated supply chain model using the actual data in problem_state. "
+                "Explain the economic interpretation, coordinated market-clearing logic, and, if available, the meaning of the solution results. "
+                "Stay tied to the actual entity IDs and actual problem data."
             ),
         }[mode]
 
         return f"""
-You are an expert assistant in coordinated supply chain optimization and market-clearing
-models for operations research and chemical engineering applications.
+You are an expert assistant in coordinated supply chain optimization, market-clearing
+models, and operations research.
 
-The chatbot you support is NOT a general supply chain tutor.
+The chatbot you support is NOT a general educational tutor and NOT a classroom supply example generator.
 It is specifically intended to explain and analyze coordinated supply chain problems
 using the framework introduced in:
 
@@ -156,9 +133,9 @@ You must explain the ACTUAL problem instance provided below using the terminolog
 and concepts of the Sampat framework.
 
 STRICT RULES:
-- Do NOT invent unrelated toy examples such as pencils, water bottles, school supplies,
-  warehouses, generic retail inventory stories, or classroom analogies unless the user
-  explicitly provided them.
+- Do NOT invent unrelated toy examples.
+- Do NOT introduce classroom, school, pencils, water bottles, inventory stories,
+  warehouses, or retail examples unless the user explicitly asked for them.
 - Do NOT replace the supplied model with a simpler example.
 - Do NOT fabricate missing parameters.
 - If information is missing, say so explicitly.
@@ -171,7 +148,6 @@ STRICT RULES:
 - If the model contains transport links, explain their network role.
 - If the model contains technologies, explain their transformation role.
 - If solve results are present, interpret them directly.
-- If theorem checks are present, mention them only if relevant.
 - Focus on the provided instance, not on generic teaching examples.
 
 MODE INSTRUCTION:
@@ -203,7 +179,7 @@ Write a response with this structure:
 1. What this specific coordinated supply chain model represents
 2. The key entities in this instance
 3. The economic/optimization interpretation under the Sampat framework
-4. If appropriate, the next step for the student or user
+4. If appropriate, the next analytical step
 
 Be precise, domain-specific, and faithful to the supplied problem instance.
 """
@@ -211,16 +187,4 @@ Be precise, domain-specific, and faithful to the supplied problem instance.
 def create_gemini_provider(
     model_name: str = "gemini-2.5-flash-lite",
 ) -> GeminiExplanationProvider:
-    """Create a Gemini explanation provider.
-
-    Args:
-        model_name: The Gemini model to use.
-
-    Returns:
-        A configured GeminiExplanationProvider instance.
-
-    Raises:
-        ImportError: If google-generativeai is not available.
-        ValueError: If GEMINI_API_KEY is not set.
-    """
     return GeminiExplanationProvider(model_name)
