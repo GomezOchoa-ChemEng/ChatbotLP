@@ -278,8 +278,10 @@ def run_chatbot_session(
 
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        result["response"] = f"Error processing request: {str(e)}"
+        result["response"] = (
+            f"Error processing request: {str(e)}\n\n"
+            f"TRACEBACK:\n{traceback.format_exc()}"
+        )
         result["success"] = False
 
     return result
