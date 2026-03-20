@@ -12,27 +12,14 @@ The design is modular to allow easy integration of an LLM for more natural
 language generation in the future.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 class ResponseGenerator:
     """Generates responses based on structured context data."""
 
     def generate_response(self, mode: str, context: Dict[str, Any]) -> str:
-        """Generate a response string based on the specified mode and context.
-
-        Args:
-            mode: One of "hint", "guided", or "full".
-            context: Dictionary containing structured outputs, e.g.:
-                - "problem_state": ProblemState instance
-                - "validation": dict from validate_state
-                - "solve_result": SolveResult instance or None
-                - "theorem_checks": list of TheoremCheck
-                - "scenario_results": dict from run_scenario or None
-
-        Returns:
-            A formatted string suitable for user display.
-        """
+        """Generate a response string based on the specified mode and context."""
         if mode == "hint":
             return self._generate_hint(context)
         elif mode == "guided":
@@ -42,32 +29,52 @@ class ResponseGenerator:
         else:
             return "Invalid mode specified. Choose 'hint', 'guided', or 'full'."
 
+    def _get_validation(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Support either 'validation' or 'validation_result' keys."""
+        return context.get("validation_result", context.get("validation", {})) or {}
+
+    def _get_solve_result(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Return solve_result as a dictionary."""
+        solve_result = context.get("solve_result")
+        if isinstance(solve_result, dict):
+            return solve_result
+        return {}
+
+    def _get_scenario_results(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Support either 'scenario_result' or 'scenario_results' keys."""
+        return context.get("scenario_result", context.get("scenario_results", {})) or {}
+
     def _generate_hint(self, context: Dict[str, Any]) -> str:
         """Generate a hint-mode response with subtle guidance."""
         hints = []
 
-        # Check validation issues
-        validation = context.get("validation", {})
+        validation = self._get_validation(context)
         issues = validation.get("issues", [])
         missing = validation.get("missing_parameters", [])
         if issues or missing:
             hints.append("Consider reviewing your problem setup for missing or invalid parameters.")
 
-        # Check solver status
-        solve_result = context.get("solve_result")
-        if solve_result and solve_result.status == "solver_unavailable":
+        solve_result = self._get_solve_result(context)
+        solve_status = solve_result.get("status")
+        if solve_status == "solver_unavailable":
             hints.append("Think about solver availability for optimization.")
-        elif solve_result and solve_result.status == "infeasible":
+        elif solve_status == "infeasible":
             hints.append("Your constraints might be too restrictive.")
 
-        # Check theorems
         theorem_checks = context.get("theorem_checks", [])
-        failed_theorems = [tc for tc in theorem_checks if not tc.applies]
+        failed_theorems = []
+        for tc in theorem_checks:
+            if isinstance(tc, dict):
+                if not tc.get("applies", False):
+                    failed_theorems.append(tc)
+            else:
+                if not getattr(tc, "applies", False):
+                    failed_theorems.append(tc)
+
         if failed_theorems:
             hints.append("Reflect on the theoretical assumptions for your case.")
 
-        # Scenario hint
-        scenario_results = context.get("scenario_results")
+        scenario_results = self._get_scenario_results(context)
         if scenario_results:
             hints.append("What-if scenarios can help explore changes.")
 
@@ -80,51 +87,77 @@ class ResponseGenerator:
         """Generate a guided-mode response with step-by-step assistance."""
         response_parts = []
 
-        # Summarize problem state
         problem_state = context.get("problem_state")
         if problem_state:
             response_parts.append(f"Problem: {problem_state.problem_title}")
-            response_parts.append(f"Entities: {len(problem_state.nodes)} nodes, {len(problem_state.products)} products, {len(problem_state.suppliers)} suppliers, {len(problem_state.consumers)} consumers.")
+            response_parts.append(
+                f"Entities: {len(problem_state.nodes)} nodes, "
+                f"{len(problem_state.products)} products, "
+                f"{len(problem_state.suppliers)} suppliers, "
+                f"{len(problem_state.consumers)} consumers."
+            )
 
-        # Validation feedback
-        validation = context.get("validation", {})
+        validation = self._get_validation(context)
         issues = validation.get("issues", [])
         missing = validation.get("missing_parameters", [])
         if issues:
             response_parts.append("Issues found: " + "; ".join(issues))
         if missing:
             response_parts.append("Missing parameters: " + "; ".join(missing))
-        if validation.get("solver_ready"):
-            response_parts.append("The model is ready to solve.")
-        else:
-            response_parts.append("Address the issues before solving.")
 
-        # Theorem checks
+        if validation:
+            if validation.get("solver_ready"):
+                response_parts.append("The model is ready to solve.")
+            else:
+                response_parts.append("Address the issues before solving.")
+
         theorem_checks = context.get("theorem_checks", [])
         if theorem_checks:
-            applicable = [tc.theorem_name for tc in theorem_checks if tc.applies]
-            not_applicable = [tc.theorem_name for tc in theorem_checks if not tc.applies]
+            applicable = []
+            not_applicable = []
+
+            for tc in theorem_checks:
+                if isinstance(tc, dict):
+                    theorem_name = tc.get("theorem_name", "unknown theorem")
+                    applies = tc.get("applies", False)
+                else:
+                    theorem_name = getattr(tc, "theorem_name", "unknown theorem")
+                    applies = getattr(tc, "applies", False)
+
+                if applies:
+                    applicable.append(theorem_name)
+                else:
+                    not_applicable.append(theorem_name)
+
             if applicable:
                 response_parts.append("Applicable theorems: " + ", ".join(applicable))
             if not_applicable:
                 response_parts.append("Non-applicable theorems: " + ", ".join(not_applicable))
 
-        # Solver results
-        solve_result = context.get("solve_result")
+        solve_result = self._get_solve_result(context)
         if solve_result:
-            response_parts.append(f"Solver status: {solve_result.status}")
-            if solve_result.objective_value is not None:
-                response_parts.append(f"Objective value: {solve_result.objective_value:.2f}")
-            if solve_result.status == "solver_unavailable":
+            solve_status = solve_result.get("status")
+            objective_value = solve_result.get("objective_value")
+
+            response_parts.append(f"Solver status: {solve_status}")
+            if objective_value is not None:
+                try:
+                    response_parts.append(f"Objective value: {float(objective_value):.2f}")
+                except (TypeError, ValueError):
+                    response_parts.append(f"Objective value: {objective_value}")
+
+            if solve_status == "solver_unavailable":
                 response_parts.append("No solver available. Results not computed.")
 
-        # Scenario summary
-        scenario_results = context.get("scenario_results")
+        scenario_results = self._get_scenario_results(context)
         if scenario_results:
             diff = scenario_results.get("difference", {})
             delta = diff.get("objective_delta")
             if delta is not None:
-                response_parts.append(f"Scenario objective change: {delta:.2f}")
+                try:
+                    response_parts.append(f"Scenario objective change: {float(delta):.2f}")
+                except (TypeError, ValueError):
+                    response_parts.append(f"Scenario objective change: {delta}")
             else:
                 response_parts.append("Scenario run completed, but no objective comparison available.")
 
@@ -134,7 +167,6 @@ class ResponseGenerator:
         """Generate a full-mode response with complete details."""
         response_parts = []
 
-        # Full problem state
         problem_state = context.get("problem_state")
         if problem_state:
             response_parts.append(f"Problem Title: {problem_state.problem_title}")
@@ -144,44 +176,72 @@ class ResponseGenerator:
             response_parts.append("Consumers: " + ", ".join(c.id for c in problem_state.consumers))
             response_parts.append("Bids: " + ", ".join(f"{b.id} ({b.price})" for b in problem_state.bids))
 
-        # Full validation
-        validation = context.get("validation", {})
+        validation = self._get_validation(context)
         response_parts.append("Validation Issues: " + "; ".join(validation.get("issues", [])))
         response_parts.append("Missing Parameters: " + "; ".join(validation.get("missing_parameters", [])))
         response_parts.append(f"Solver Ready: {validation.get('solver_ready', False)}")
 
-        # Full theorem checks
         theorem_checks = context.get("theorem_checks", [])
         for tc in theorem_checks:
-            response_parts.append(f"Theorem '{tc.theorem_name}': {'Applies' if tc.applies else 'Does not apply'} - {tc.explanation}")
+            if isinstance(tc, dict):
+                theorem_name = tc.get("theorem_name", "unknown theorem")
+                applies = tc.get("applies", False)
+                explanation = tc.get("explanation", "")
+            else:
+                theorem_name = getattr(tc, "theorem_name", "unknown theorem")
+                applies = getattr(tc, "applies", False)
+                explanation = getattr(tc, "explanation", "")
 
-        # Full solver results
-        solve_result = context.get("solve_result")
+            status_text = "Applies" if applies else "Does not apply"
+            response_parts.append(f"Theorem '{theorem_name}': {status_text} - {explanation}")
+
+        solve_result = self._get_solve_result(context)
         if solve_result:
-            response_parts.append(f"Solver Status: {solve_result.status}")
-            response_parts.append(f"Message: {solve_result.message}")
-            response_parts.append(f"Objective Value: {solve_result.objective_value}")
-            response_parts.append(f"Solver Time: {solve_result.solver_time:.2f} seconds")
-            response_parts.append("Solution Variables:")
-            for var, val in solve_result.solution.items():
-                if isinstance(val, dict):
-                    response_parts.append(f"  {var}: {val}")
-                else:
-                    response_parts.append(f"  {var}: {val}")
+            response_parts.append(f"Solver Status: {solve_result.get('status')}")
+            response_parts.append(f"Message: {solve_result.get('message')}")
+            response_parts.append(f"Objective Value: {solve_result.get('objective_value')}")
 
-        # Full scenario results
-        scenario_results = context.get("scenario_results")
+            solver_time = solve_result.get("solver_time")
+            if solver_time is not None:
+                try:
+                    response_parts.append(f"Solver Time: {float(solver_time):.2f} seconds")
+                except (TypeError, ValueError):
+                    response_parts.append(f"Solver Time: {solver_time}")
+
+            response_parts.append("Solution Variables:")
+            solution = solve_result.get("solution", {})
+            if isinstance(solution, dict) and solution:
+                for var, val in solution.items():
+                    response_parts.append(f"  {var}: {val}")
+            else:
+                response_parts.append("  No solution variables reported.")
+
+        scenario_results = self._get_scenario_results(context)
         if scenario_results:
             base_res = scenario_results.get("base")
             scen_res = scenario_results.get("scenario")
             diff = scenario_results.get("difference", {})
-            if base_res:
-                response_parts.append(f"Base Objective: {base_res.objective_value}")
-            if scen_res:
-                response_parts.append(f"Scenario Objective: {scen_res.objective_value}")
+
+            if isinstance(base_res, dict):
+                response_parts.append(f"Base Objective: {base_res.get('objective_value')}")
+            elif base_res is not None:
+                response_parts.append(
+                    f"Base Objective: {getattr(base_res, 'objective_value', None)}"
+                )
+
+            if isinstance(scen_res, dict):
+                response_parts.append(f"Scenario Objective: {scen_res.get('objective_value')}")
+            elif scen_res is not None:
+                response_parts.append(
+                    f"Scenario Objective: {getattr(scen_res, 'objective_value', None)}"
+                )
+
             delta = diff.get("objective_delta")
             if delta is not None:
-                response_parts.append(f"Objective Delta: {delta:.2f}")
+                try:
+                    response_parts.append(f"Objective Delta: {float(delta):.2f}")
+                except (TypeError, ValueError):
+                    response_parts.append(f"Objective Delta: {delta}")
 
         return "Full Solution:\n" + "\n".join(response_parts)
 
@@ -191,17 +251,8 @@ def generate_response(
     context: Dict[str, Any],
     use_llm: bool = False,
 ) -> str:
-    """Convenience function to generate a response.
-
-    Args:
-        mode: One of "hint", "guided", or "full".
-        context: Context dictionary as expected by ``ResponseGenerator``.
-        use_llm: If True, the registered LLM provider will be asked for an
-            ``ExplanationGenerator``.  If that implementation raises an
-            exception we fall back to the rule-based generator.
-    """
+    """Convenience function to generate a response."""
     if use_llm:
-        # acquire LLM generator from registry
         try:
             from .llm_adapter import LLMProviderRegistry
 
@@ -209,7 +260,6 @@ def generate_response(
             llm_gen = provider.get_explanation_generator()
             return llm_gen.generate(mode, context)
         except Exception:
-            # fallback to rule-based on any failure
             pass
 
     generator = ResponseGenerator()
