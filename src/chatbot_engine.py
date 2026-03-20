@@ -89,20 +89,22 @@ def normalize_solve_result(solve_result: Any) -> Dict[str, Any]:
     Supports either:
     - a dict returned directly by solve_model(), or
     - an object-like result with attributes such as success, status,
-      objective_value, and termination_condition.
+      objective_value, message, solver_time, solution, and
+      termination_condition.
     """
     if isinstance(solve_result, dict):
         return solve_result
 
-    normalized = {
+    return {
         "success": bool(getattr(solve_result, "success", False)),
         "status": getattr(solve_result, "status", None),
         "objective_value": getattr(solve_result, "objective_value", None),
+        "message": getattr(solve_result, "message", None),
+        "solver_time": getattr(solve_result, "solver_time", None),
+        "solution": getattr(solve_result, "solution", {}),
         "termination_condition": getattr(solve_result, "termination_condition", None),
         "raw_result": solve_result,
     }
-
-    return normalized
 
 
 def run_chatbot_session(
@@ -278,6 +280,7 @@ def run_chatbot_session(
 
     except Exception as e:
         import traceback
+
         result["response"] = (
             f"Error processing request: {str(e)}\n\n"
             f"TRACEBACK:\n{traceback.format_exc()}"
