@@ -160,21 +160,17 @@ def run_chatbot_session(
         elif intent == "solve":
             model = build_model_from_state(state)
             solve_result = solve_model(model)
+
             context = {
                 "type": "solve",
                 "user_message": user_message,
                 "intent": intent,
                 "problem_state": state,
-                "solve_result": {
-                    "status": solve_result.status,
-                    "objective_value": solve_result.objective_value,
-                    "success": solve_result.success,
-                    "message": solve_result.message,
-                    "solution": solve_result.solution,
-                },
+                "solve_result": solve_result,
             }
+
             result["response"] = generate_response(mode, context, use_llm=use_llm)
-            result["success"] = solve_result.success
+            result["success"] = bool(solve_result.get("success", False))
 
         elif intent == "theorem_check":
             checks = check_theorems(state)
