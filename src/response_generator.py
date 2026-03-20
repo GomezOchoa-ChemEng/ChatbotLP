@@ -30,22 +30,18 @@ class ResponseGenerator:
             return "Invalid mode specified. Choose 'hint', 'guided', or 'full'."
 
     def _get_validation(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Support either 'validation' or 'validation_result' keys."""
         return context.get("validation_result", context.get("validation", {})) or {}
 
     def _get_solve_result(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Return solve_result as a dictionary."""
         solve_result = context.get("solve_result")
         if isinstance(solve_result, dict):
             return solve_result
         return {}
 
     def _get_scenario_results(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Support either 'scenario_result' or 'scenario_results' keys."""
         return context.get("scenario_result", context.get("scenario_results", {})) or {}
 
     def _generate_hint(self, context: Dict[str, Any]) -> str:
-        """Generate a hint-mode response with subtle guidance."""
         hints = []
 
         validation = self._get_validation(context)
@@ -84,7 +80,6 @@ class ResponseGenerator:
         return "Hints: " + " ".join(hints)
 
     def _generate_guided(self, context: Dict[str, Any]) -> str:
-        """Generate a guided-mode response with step-by-step assistance."""
         response_parts = []
 
         problem_state = context.get("problem_state")
@@ -164,7 +159,6 @@ class ResponseGenerator:
         return "Guided Response:\n" + "\n".join(response_parts)
 
     def _generate_full(self, context: Dict[str, Any]) -> str:
-        """Generate a full-mode response with complete details."""
         response_parts = []
 
         problem_state = context.get("problem_state")
@@ -225,16 +219,12 @@ class ResponseGenerator:
             if isinstance(base_res, dict):
                 response_parts.append(f"Base Objective: {base_res.get('objective_value')}")
             elif base_res is not None:
-                response_parts.append(
-                    f"Base Objective: {getattr(base_res, 'objective_value', None)}"
-                )
+                response_parts.append(f"Base Objective: {getattr(base_res, 'objective_value', None)}")
 
             if isinstance(scen_res, dict):
                 response_parts.append(f"Scenario Objective: {scen_res.get('objective_value')}")
             elif scen_res is not None:
-                response_parts.append(
-                    f"Scenario Objective: {getattr(scen_res, 'objective_value', None)}"
-                )
+                response_parts.append(f"Scenario Objective: {getattr(scen_res, 'objective_value', None)}")
 
             delta = diff.get("objective_delta")
             if delta is not None:
