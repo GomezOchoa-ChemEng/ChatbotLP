@@ -83,6 +83,28 @@ def incorporate_parsed_entities(state: ProblemState, parsed_entities: Dict[str, 
         state.add_bid(Bid(**bid_data))
 
 
+def normalize_solve_result(solve_result: Any) -> Dict[str, Any]:
+    """Normalize solver output into a dictionary.
+
+    Supports either:
+    - a dict returned directly by solve_model(), or
+    - an object-like result with attributes such as success, status,
+      objective_value, and termination_condition.
+    """
+    if isinstance(solve_result, dict):
+        return solve_result
+
+    normalized = {
+        "success": bool(getattr(solve_result, "success", False)),
+        "status": getattr(solve_result, "status", None),
+        "objective_value": getattr(solve_result, "objective_value", None),
+        "termination_condition": getattr(solve_result, "termination_condition", None),
+        "raw_result": solve_result,
+    }
+
+    return normalized
+
+
 def run_chatbot_session(
     state: ProblemState,
     user_message: str,
@@ -159,7 +181,8 @@ def run_chatbot_session(
 
         elif intent == "solve":
             model = build_model_from_state(state)
-            solve_result = solve_model(model)
+            raw_solve_result = solve_model(model)
+            solve_result = normalize_solve_result(raw_solve_result)
 
             context = {
                 "type": "solve",
@@ -260,4 +283,4 @@ def run_chatbot_session(
     return result
 
 
-__all__ = ["IntentRouter", "run_chatbot_session"]
+__all__ = ["IntentRouter", "run_chatbot_session", "normalize_solve_result"]
