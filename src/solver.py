@@ -3,49 +3,21 @@
 This module provides a high-level interface to solve Pyomo models and
 extract structured results. It handles solver execution, result validation,
 and formatting without modifying the input model or ProblemState.
-
-Design philosophy:
-- Accept a Pyomo ConcreteModel as input
-- Execute a solver (default: ipopt or glpk fallback)
-- Return a structured, read-only result dictionary
-- Report termination conditions explicitly
-- Extract decision variables and objective value
-- Keep the solver engine modular and testable
 """
 
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple
 import json
+import os
 
 from pyomo.environ import (
     ConcreteModel,
     SolverFactory,
-    TerminationCondition,
-    SolverStatus,
     value,
 )
 
 
-# ------------------------------------------------
-# Result container classes
-# ------------------------------------------------
-
-
 class SolveResult:
-    """Structured result from solving a Pyomo model.
-
-    Attributes:
-        model (ConcreteModel): The solved model (may be modified by solver).
-        status (str): Termination status (e.g., 'optimal', 'infeasible', 'unbounded').
-        message (str): Human-readable status message.
-        objective_value (Optional[float]): Objective function value if solved.
-        solver_time (float): Solver execution time in seconds.
-        solution (Dict[str, Any]): Decision variable values extracted from model.
-        success (bool): True if solution is feasible/optimal, False otherwise.
-
-    Methods can be used to serialize results, check feasibility, and extract
-    decision variables for post-solve analysis.
-    """
+    """Structured result from solving a Pyomo model."""
 
     def __init__(
         self,
@@ -66,7 +38,6 @@ class SolveResult:
         self.success = success
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert result to a JSON-serializable dictionary."""
         return {
             "status": self.status,
             "message": self.message,
@@ -79,14 +50,88 @@ class SolveResult:
     def __repr__(self) -> str:
         return (
             f"SolveResult(status={self.status}, success={self.success}, "
-            f"objective={self.objective_value:.6f})" if self.objective_value is not None
+            f"objective={self.objective_value:.6f})"
+            if self.objective_value is not None
             else f"SolveResult(status={self.status}, success={self.success})"
         )
 
 
-# ------------------------------------------------
-# Core solver interface
-# ------------------------------------------------
+def _candidate_solvers(
+    solver_name: str,
+    fallback_solver: str,
+) -> List[Tuple[str, Optional[str]]]:
+    """Return solver candidates with optional explicit executable paths."""
+    candidates: List[Tuple[str, Optional[str]]] = [
+        (solver_name, None),
+        (fallback_solver, None),
+    ]
+
+    # Add common explicit executable paths, useful in Colab/Linux.
+    if solver_name == "glpk" or fallback_solver == "glpk":
+        candidates.extend(
+            [
+                ("glpk", "/usr/bin/glpsol"),
+                ("glpk", "/bin/glpsol"),
+            ]
+        )
+
+    if solver_name == "ipopt" or fallback_solver == "ipopt":
+        candidates.extend(
+            [
+                ("ipopt", "/usr/bin/ipopt"),
+                ("ipopt", "/bin/ipopt"),
+            ]
+        )
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_candidates = []
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            unique_candidates.append(item)
+
+    return unique_candidates
+
+
+def _get_solver(
+    solver_name: str,
+    fallback_solver: str,
+    verbose: bool = False,
+):
+    """Find the first available solver."""
+    tried = []
+
+    for name, executable in _candidate_solvers(solver_name, fallback_solver):
+        try:
+            if executable is not None:
+                if not os.path.exists(executable):
+                    tried.append(f"{name} ({executable}: not found)")
+                    continue
+                solver = SolverFactory(name, executable=executable)
+            else:
+                solver = SolverFactory(name)
+
+            if solver is not None and solver.available(exception_flag=False):
+                if verbose:
+                    if executable:
+                        print(f"Using solver {name} with executable {executable}")
+                    else:
+                        print(f"Using solver {name}")
+                return solver, name, executable, tried
+
+            if executable:
+                tried.append(f"{name} ({executable})")
+            else:
+                tried.append(name)
+
+        except Exception as e:
+            if executable:
+                tried.append(f"{name} ({executable}): {e}")
+            else:
+                tried.append(f"{name}: {e}")
+
+    return None, None, None, tried
 
 
 def solve_model(
@@ -96,70 +141,18 @@ def solve_model(
     fallback_solver: str = "glpk",
     verbose: bool = False,
 ) -> SolveResult:
-    """Solve a Pyomo ConcreteModel and return structured results.
-
-    This function:
-    1. Creates a solver instance (with fallback if primary fails)
-    2. Executes the solve action
-    3. Extracts results and decision variables
-    4. Returns a SolveResult object with explicit status
-
-    Args:
-        model: A Pyomo ConcreteModel with sets, variables, objective, and constraints.
-        solver_name: Name of the primary solver (default: 'ipopt').
-        solver_options: Dict of solver-specific options (e.g., {'tol': 1e-6}).
-        fallback_solver: If primary solver unavailable, try this solver (default: 'glpk').
-        verbose: If True, print solver output to console.
-
-    Returns:
-        SolveResult: Structured result object containing status, objective, solution, etc.
-
-    Notes:
-        If neither the primary nor the fallback solver is available the function
-        will **not** raise an exception. Instead it returns a `SolveResult`
-        instance with `status="solver_unavailable"` and `success=False`.
-    """
-
+    """Solve a Pyomo ConcreteModel and return structured results."""
     if solver_options is None:
         solver_options = {}
 
-    # ------------------------------------------------
-    # select a solver, but handle absence gracefully
-    # ------------------------------------------------
-    solver = None
-    used_solver = None
+    solver, used_solver, used_executable, tried = _get_solver(
+        solver_name=solver_name,
+        fallback_solver=fallback_solver,
+        verbose=verbose,
+    )
 
-    def _is_available(s):
-        try:
-            return s is not None and s.available()
-        except Exception:
-            return False
-
-    # try primary
-    try:
-        solver_candidate = SolverFactory(solver_name)
-    except Exception:
-        solver_candidate = None
-    if _is_available(solver_candidate):
-        solver = solver_candidate
-        used_solver = solver_name
-    else:
-        if verbose:
-            print(f"Primary solver {solver_name} not available, checking fallback {fallback_solver}.")
-        # try fallback
-        try:
-            solver_candidate = SolverFactory(fallback_solver)
-        except Exception:
-            solver_candidate = None
-        if _is_available(solver_candidate):
-            solver = solver_candidate
-            used_solver = fallback_solver
-
-    # if still no solver found, return structured unavailable result
     if solver is None:
-        msg = (
-            f"No available solver found (tried '{solver_name}' and '{fallback_solver}')."
-        )
+        msg = "No available solver found. Tried: " + ", ".join(tried)
         return SolveResult(
             model=model,
             status="solver_unavailable",
@@ -170,27 +163,22 @@ def solve_model(
             success=False,
         )
 
-    # Apply solver options
     for key, val in solver_options.items():
         solver.options[key] = val
 
     if verbose:
-        print(f"Solving model with {used_solver}...")
+        if used_executable:
+            print(f"Solving model with {used_solver} at {used_executable}...")
+        else:
+            print(f"Solving model with {used_solver}...")
 
-    # Execute solve
     import time
     start_time = time.time()
     results = solver.solve(model, tee=verbose)
     solver_time = time.time() - start_time
 
-    if verbose:
-        print(f"Solver finished in {solver_time:.2f} seconds.")
-
-    # Extract status and message
-    status_str = str(results.solver.status)
     term_cond = str(results.solver.termination_condition)
 
-    # Map termination condition to human-readable status
     status_map = {
         "optimal": "optimal",
         "feasible": "feasible",
@@ -200,11 +188,8 @@ def solve_model(
         "unboundedProven": "unbounded",
     }
     status = status_map.get(term_cond, term_cond.lower())
-
-    # Determine success flag: optimal or feasible is a success
     success = status in ("optimal", "feasible")
 
-    # Extract objective value if solution exists
     objective_value = None
     if hasattr(model, "obj") and success:
         try:
@@ -212,14 +197,18 @@ def solve_model(
         except Exception:
             objective_value = None
 
-    # Extract decision variables
     solution = _extract_solution(model)
 
-    # Build message
-    message = (
-        f"Solver {used_solver} terminated with status {status} "
-        f"(termination condition: {term_cond})"
-    )
+    if used_executable:
+        message = (
+            f"Solver {used_solver} at {used_executable} terminated with status {status} "
+            f"(termination condition: {term_cond})"
+        )
+    else:
+        message = (
+            f"Solver {used_solver} terminated with status {status} "
+            f"(termination condition: {term_cond})"
+        )
 
     return SolveResult(
         model=model,
@@ -232,33 +221,12 @@ def solve_model(
     )
 
 
-# ------------------------------------------------
-# Solution extraction helpers
-# ------------------------------------------------
-
-
 def _extract_solution(model: ConcreteModel) -> Dict[str, Any]:
-    """Extract all Pyomo Var values from a model.
-
-    Only :class:`~pyomo.core.base.var.Var` components are considered; sets,
-    parameters, and other objects are ignored.  Uninitialized variables are
-    handled gracefully: if obtaining a numeric value raises an exception the
-    value ``None`` is recorded rather than propagating the error.
-
-    Args:
-        model: A Pyomo ConcreteModel (solved or unsolved).
-
-    Returns:
-        A dictionary mapping variable names to either a scalar or a nested
-        index-&gt;value mapping.  Indexed variables produce a sub-dictionary
-        where each key is the stringified index and the value is the variable
-        value or ``None``.
-    """
+    """Extract all Pyomo Var values from a model."""
     from pyomo.core.base.var import Var
 
     solution: Dict[str, Any] = {}
 
-    # iterate only over Var objects to avoid sets or other components
     for var in model.component_objects(Var, descend_into=True):
         name = var.name
         if var.is_indexed():
@@ -283,22 +251,7 @@ def extract_variable_values(
     var_name: str,
     threshold: Optional[float] = None,
 ) -> Dict[Any, float]:
-    """Extract values for a specific variable from a solved model.
-
-    Useful for post-solve analysis, e.g., extracting bid quantities q above
-    a certain threshold.
-
-    Args:
-        model: Solved Pyomo ConcreteModel.
-        var_name: Name of the variable to extract (e.g., "q", "flow").
-        threshold: If provided, filter to indices where |value| >= threshold.
-
-    Returns:
-        Dict mapping index to value for the specified variable.
-
-    Raises:
-        KeyError: If variable not found in model.
-    """
+    """Extract values for a specific variable from a solved model."""
     var = getattr(model, var_name, None)
     if var is None:
         raise KeyError(f"Variable {var_name} not found in model")
@@ -317,33 +270,15 @@ def extract_variable_values(
     return result
 
 
-# ------------------------------------------------
-# Result serialization
-# ------------------------------------------------
-
-
 def save_result(result: SolveResult, filepath: str) -> None:
-    """Save a SolveResult to a JSON file.
-
-    Args:
-        result: SolveResult object to save.
-        filepath: Path to output JSON file.
-    """
+    """Save a SolveResult to a JSON file."""
     data = result.to_dict()
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
 
 
 def load_result(filepath: str) -> Dict[str, Any]:
-    """Load a previously saved result dictionary from JSON.
-
-    Args:
-        filepath: Path to input JSON file.
-
-    Returns:
-        Dict containing the result (does not reconstruct SolveResult object,
-        only the data dictionary).
-    """
+    """Load a previously saved result dictionary from JSON."""
     with open(filepath, "r") as f:
         return json.load(f)
 
