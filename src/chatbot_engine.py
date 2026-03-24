@@ -187,12 +187,16 @@ def run_chatbot_session(
             raw_solve_result = solve_model(model)
             solve_result = normalize_solve_result(raw_solve_result)
 
+            solve_diag = dict(diag)
+            if solve_result.get("status") == "optimal":
+                solve_diag["solver_ready"] = True
+
             context = {
                 "type": "solve",
                 "user_message": user_message,
                 "intent": intent,
                 "problem_state": state,
-                "validation_result": diag,
+                "validation_result": solve_diag,
                 "solve_result": solve_result,
             }
 

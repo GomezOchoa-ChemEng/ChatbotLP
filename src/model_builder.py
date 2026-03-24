@@ -99,18 +99,11 @@ def build_model(data):
             if data["technology_nodes"].get(k) == n
         )
 
-        return (
-            supply_sum
-            + transport_in_sum
-            + tech_net
-            - consume_sum
-            - transport_out_sum
-            == 0
-        )
+        return supply_sum + transport_in_sum + tech_net - consume_sum - transport_out_sum == 0
 
     model.node_balance = Constraint(model.N, model.P, rule=node_product_balance_rule)
 
-    # Supplier bid upper bounds
+    # Supplier bounds
     model.supplier_capacity = ConstraintList()
     for b in model.B:
         if data["bids"][b]["type"] == "supplier":
@@ -118,7 +111,7 @@ def build_model(data):
             if cap is not None:
                 model.supplier_capacity.add(model.q[b] <= cap)
 
-    # Consumer bid upper bounds
+    # Consumer bounds
     model.consumer_capacity = ConstraintList()
     for b in model.B:
         if data["bids"][b]["type"] == "consumer":
@@ -126,7 +119,7 @@ def build_model(data):
             if cap is not None:
                 model.consumer_capacity.add(model.q[b] <= cap)
 
-    # Transport capacity bounds
+    # Transport bounds
     model.transport_capacity = ConstraintList()
     for (i, j) in model.T:
         cap = data["transport_capacities"].get((i, j), None)
@@ -156,12 +149,7 @@ def build_model_from_state(state):
     consumer_map = {c.id: c for c in state.consumers}
 
     for b in state.bids:
-        if b.owner_type == "supplier":
-            node = supplier_map[b.owner_id].node
-        elif b.owner_type == "consumer":
-            node = consumer_map[b.owner_id].node
-        else:
-            node = None
+        node = supplier_map[b.owner_id].node if b.owner_type == "supplier" else consumer_map[b.owner_id].node
 
         data["bids"][b.id] = {
             "type": b.owner_type,
