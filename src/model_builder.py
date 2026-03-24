@@ -99,9 +99,20 @@ def build_model(data):
             if data["technology_nodes"].get(k) == n
         )
 
-        return supply_sum + transport_in_sum + tech_net - consume_sum - transport_out_sum == 0
+        return (
+            supply_sum
+            + transport_in_sum
+            + tech_net
+            - consume_sum
+            - transport_out_sum
+            == 0
+        )
 
     model.node_balance = Constraint(model.N, model.P, rule=node_product_balance_rule)
+
+    # =========================
+    # CAPACITY CONSTRAINTS
+    # =========================
 
     # Supplier bounds
     model.supplier_capacity = ConstraintList()
@@ -149,7 +160,12 @@ def build_model_from_state(state):
     consumer_map = {c.id: c for c in state.consumers}
 
     for b in state.bids:
-        node = supplier_map[b.owner_id].node if b.owner_type == "supplier" else consumer_map[b.owner_id].node
+        if b.owner_type == "supplier":
+            node = supplier_map[b.owner_id].node
+        elif b.owner_type == "consumer":
+            node = consumer_map[b.owner_id].node
+        else:
+            node = None
 
         data["bids"][b.id] = {
             "type": b.owner_type,
