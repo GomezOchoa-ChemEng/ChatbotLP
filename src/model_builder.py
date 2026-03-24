@@ -20,7 +20,7 @@ def build_model(data):
     model.P = Set(initialize=data["products"])
     model.S = Set(initialize=data["suppliers"])
     model.C = Set(initialize=data["consumers"])
-    model.B = Set(initialize=data["bids"])
+    model.B = Set(initialize=list(data["bids"].keys()))
     model.T = Set(initialize=data["transport_arcs"], dimen=2)
     model.K = Set(initialize=data["technologies"])
 
@@ -32,7 +32,7 @@ def build_model(data):
     model.x = Var(model.K, domain=NonNegativeReals)
 
     # =========================
-    # OBJECTIVE (maximize surplus)
+    # OBJECTIVE
     # =========================
     def obj_expr(m):
         supplier_term = sum(
@@ -48,12 +48,12 @@ def build_model(data):
         )
 
         transport_cost = sum(
-            data["transport_costs"][(i, j)] * m.f[i, j]
+            data["transport_costs"].get((i, j), 0.0) * m.f[i, j]
             for (i, j) in m.T
         )
 
         tech_cost = sum(
-            data["technology_costs"][k] * m.x[k]
+            data["technology_costs"].get(k, 0.0) * m.x[k]
             for k in m.K
         )
 
@@ -64,8 +64,6 @@ def build_model(data):
     # =========================
     # CONSTRAINTS
     # =========================
-
-    # --- Node-product balance ---
     def node_product_balance_rule(m, n, p):
         supply_sum = sum(
             m.q[b]
@@ -98,7 +96,7 @@ def build_model(data):
         tech_net = sum(
             data["technology_yields"].get((k, p), 0.0) * m.x[k]
             for k in m.K
-            if data["technology_nodes"][k] == n
+            if data["technology_nodes"].get(k) == n
         )
 
         return (
@@ -112,13 +110,72 @@ def build_model(data):
 
     model.node_balance = Constraint(model.N, model.P, rule=node_product_balance_rule)
 
-    # --- Supplier capacity constraints ---
+    # Supplier bid upper bounds
     model.supplier_capacity = ConstraintList()
-
     for b in model.B:
         if data["bids"][b]["type"] == "supplier":
-            cap = data["bids"][b].get("capacity", None)
+            cap = data["bids"][b].get("quantity", None)
             if cap is not None:
                 model.supplier_capacity.add(model.q[b] <= cap)
 
+    # Consumer bid upper bounds
+    model.consumer_capacity = ConstraintList()
+    for b in model.B:
+        if data["bids"][b]["type"] == "consumer":
+            cap = data["bids"][b].get("quantity", None)
+            if cap is not None:
+                model.consumer_capacity.add(model.q[b] <= cap)
+
+    # Transport capacity bounds
+    model.transport_capacity = ConstraintList()
+    for (i, j) in model.T:
+        cap = data["transport_capacities"].get((i, j), None)
+        if cap is not None:
+            model.transport_capacity.add(model.f[i, j] <= cap)
+
     return model
+
+
+def build_model_from_state(state):
+    data = {
+        "nodes": [n.id for n in state.nodes],
+        "products": [p.id for p in state.products],
+        "suppliers": [s.id for s in state.suppliers],
+        "consumers": [c.id for c in state.consumers],
+        "bids": {},
+        "transport_arcs": [],
+        "transport_costs": {},
+        "transport_capacities": {},
+        "technologies": [],
+        "technology_costs": {},
+        "technology_yields": {},
+        "technology_nodes": {},
+    }
+
+    supplier_map = {s.id: s for s in state.suppliers}
+    consumer_map = {c.id: c for c in state.consumers}
+
+    for b in state.bids:
+        if b.owner_type == "supplier":
+            node = supplier_map[b.owner_id].node
+        elif b.owner_type == "consumer":
+            node = consumer_map[b.owner_id].node
+        else:
+            node = None
+
+        data["bids"][b.id] = {
+            "type": b.owner_type,
+            "owner_id": b.owner_id,
+            "node": node,
+            "product": b.product_id,
+            "value": b.price,
+            "quantity": b.quantity,
+        }
+
+    for t in state.transport_links:
+        arc = (t.origin, t.destination)
+        data["transport_arcs"].append(arc)
+        data["transport_capacities"][arc] = t.capacity
+        data["transport_costs"][arc] = getattr(t, "cost", 0.0)
+
+    return build_model(data)

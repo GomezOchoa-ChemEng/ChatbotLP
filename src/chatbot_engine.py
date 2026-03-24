@@ -182,6 +182,7 @@ def run_chatbot_session(
             result["success"] = True
 
         elif intent == "solve":
+            diag = validate_state(state)
             model = build_model_from_state(state)
             raw_solve_result = solve_model(model)
             solve_result = normalize_solve_result(raw_solve_result)
@@ -191,6 +192,7 @@ def run_chatbot_session(
                 "user_message": user_message,
                 "intent": intent,
                 "problem_state": state,
+                "validation_result": diag,
                 "solve_result": solve_result,
             }
 
