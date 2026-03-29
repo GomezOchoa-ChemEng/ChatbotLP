@@ -24,6 +24,13 @@ from .solver import solve_model
 from .theorem_checker import check_theorems
 from .scenario_engine import run_scenario
 from .response_generator import generate_response
+from .formal_context_builder import (
+    build_formal_math_context,
+    identify_formal_math_request,
+)
+from .math_response_generator import generate_math_response
+from .proof_validator import validate_formal_math_context
+from .domain.sampat2019 import get_theorem_metadata
 
 
 class IntentRouter:
@@ -35,6 +42,13 @@ class IntentRouter:
 
     def __init__(self):
         self.intent_patterns = [
+            (
+                "formal_math",
+                re.compile(
+                    r"\b(dual|proof|prove|latex|theorem\s+\d+|section\s+2\.3|negative\s+bid|negative\s+price)\b",
+                    re.IGNORECASE,
+                ),
+            ),
             ("solve", re.compile(r"\b(solve|solution|objective|optimize)\b", re.IGNORECASE)),
             ("scenario", re.compile(r"\b(scenario|what.if|what if|modify|change|parameter)\b", re.IGNORECASE)),
             ("theorem_check", re.compile(r"\b(theorem|case [abc]|assumption|applicability)\b", re.IGNORECASE)),
@@ -221,6 +235,28 @@ def run_chatbot_session(
             }
             result["response"] = generate_response(mode, context, use_llm=use_llm)
             result["success"] = True
+
+        elif intent == "formal_math":
+            check_theorems(state)
+            formal_context = build_formal_math_context(
+                state=state,
+                user_message=user_message,
+                pedagogical_mode=mode,
+            )
+            result["response"] = generate_math_response(formal_context, use_llm=use_llm)
+            result["formal_math_context"] = formal_context
+            request_type = identify_formal_math_request(user_message)["request_type"]
+            fatal_issues = validate_formal_math_context(formal_context)
+            theorem_supported = (
+                True
+                if not formal_context.theorem_id
+                else get_theorem_metadata(formal_context.theorem_id) is not None
+            )
+            result["success"] = (
+                request_type != "general_math_explanation"
+                and not fatal_issues
+                and theorem_supported
+            )
 
         elif intent == "scenario":
             change_spec = {}

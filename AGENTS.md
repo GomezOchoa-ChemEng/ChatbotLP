@@ -1,224 +1,245 @@
 # AGENTS.md
+
 Guidelines for Codex when assisting with this repository.
 
 ---
 
-# Project Mission
+## Project Mission
 
-Build a **domain-specific chatbot for coordinated supply chain optimization** designed for **classroom use by advanced undergraduate students**.
+Build a domain-specific chatbot for coordinated supply chain optimization designed for classroom use by advanced undergraduate students.
 
-The chatbot should support **progressive inquiry** similar to ChatGPT but specialized for the coordinated supply chain framework.
+The chatbot should support progressive inquiry similar to ChatGPT but specialized for the coordinated supply chain framework.
 
-Capabilities include:
+The theoretical references are:
 
-• interpreting supply chain problems from natural language  
-• extracting entities (suppliers, consumers, nodes, technologies)  
-• constructing a mathematical model  
-• generating LaTeX formulations  
-• solving the model using Pyomo  
-• identifying missing parameters  
-• checking theoretical assumptions  
-• performing what-if analysis  
+- `docs/Sampat_2019_Coordinated_Supply_Chain.pdf`
+- `docs/Supporting_Information_CoorditatedManagement.pdf`
 
-The system should **not rely on model fine-tuning**.
+Use the main paper as the theoretical foundation of the coordinated market-clearing model.
+
+Use Section 3 of the supporting information as the benchmark reference for the first working implementation.
+
+The first project milestone is that the system must be able to represent and later solve the illustrative benchmark case-study families:
+
+- Case A: no transformation
+- Case B: negative bidding costs
+- Case C: transformation
+
+The system should not rely on fine-tuning.
 
 Instead it should use:
 
-• structured problem schemas  
-• rule-based logic  
-• retrieval of knowledge sources  
-• deterministic code generation  
-• optimization solvers
+- structured problem schemas
+- rule-based validation
+- retrieval of local project documents
+- deterministic model generation
+- optimization solvers
+- progressive conversational state tracking
 
 ---
 
-# Development Philosophy
+## Development Philosophy
 
-This system must follow a **hybrid architecture**:
+This system must follow a hybrid architecture:
 
-Language interface → structured model → solver → explanation.
+language interface → structured problem state → validator → model builder → solver → explanation
 
-The LLM is **not the mathematical authority**.
+The language model is not the mathematical authority.
 
-All final mathematical results must come from:
+All final mathematical claims must come from:
 
-• explicit model generation  
-• deterministic validation  
-• numerical solving.
-
----
-
-# Architecture Overview
-
-The project contains the following logical modules:
-
-Dialogue Layer  
-Handles user conversation and intent classification.
-
-State Manager  
-Maintains the evolving supply chain problem state.
-
-Domain Parser  
-Extracts structured information from user input.
-
-Schema Module  
-Defines canonical supply chain model structures.
-
-Model Builder  
-Creates the mathematical model from the schema.
-
-Latex Generator  
-Produces formal mathematical formulations.
-
-Solver Engine  
-Instantiates and solves the optimization model.
-
-Theorem Checker  
-Evaluates whether theoretical assumptions apply.
-
-Scenario Engine  
-Runs what-if analyses.
+- explicit schema validation
+- deterministic model construction
+- solver-backed computation
+- theorem or assumption checks
 
 ---
 
-# Implementation Order
+## Key Initial Requirement
+
+The first version must support the benchmark structures described in the supporting information:
+
+1. no-transformation systems
+2. systems with negative supplier or consumer bids
+3. systems with transformation technologies and yield coefficients
+
+The schema, validator, model builder, and tests must all be designed with these benchmark families in mind.
+
+---
+
+## Architecture Overview
+
+The project should eventually contain these logical modules in `src/`:
+
+- `schema.py`
+- `state_manager.py`
+- `parser.py`
+- `retrieval.py`
+- `validator.py`
+- `model_builder.py`
+- `solver.py`
+- `theorem_checker.py`
+- `scenario_engine.py`
+- `response_generator.py`
+- `chatbot_engine.py`
+
+Do not implement all of them at once.
+
+---
+
+## Implementation Order
 
 Codex should follow this implementation sequence:
 
-1. Repository structure
-2. Canonical schema
-3. Problem state manager
-4. LaTeX generator
-5. Pyomo model builder
-6. Solver interface
-7. Theorem applicability checker
-8. Scenario analysis module
-9. Colab demonstration notebook
+1. `schema.py`
+2. `state_manager.py`
+3. `validator.py`
+4. `model_builder.py`
+5. `solver.py`
+6. benchmark tests for Case A, B, and C
+7. `theorem_checker.py`
+8. `parser.py`
+9. `response_generator.py`
+10. `scenario_engine.py`
+11. `chatbot_engine.py`
 
 Do not skip steps.
 
 ---
 
-# File Editing Policy
+## File Editing Policy
 
 Codex may modify:
 
-src/
-tests/
-notebooks/
+- `src/`
+- `tests/`
+- `notebooks/`
 
-Codex should NOT rewrite:
+Codex should not rewrite:
 
-docs/project_guide.md
-AGENTS.md
-README.md
+- `AGENTS.md`
+- `README.md`
+- `docs/system_architecture.md`
 
 unless explicitly instructed.
 
 ---
 
-# Mathematical Safety Rules
+## Mathematical Safety Rules
 
 Codex must follow these rules:
 
 1. Do not fabricate parameter values.
 2. Do not claim a model was solved unless the solver ran.
-3. Do not claim theorem applicability without checking assumptions.
+3. Do not claim theorem applicability without explicit checks.
 4. Always distinguish between:
-
-• user-provided data  
-• assumed values  
-• sourced values
-
-5. If parameters are missing, request them instead of guessing.
+   - user-provided data
+   - article-derived data
+   - assumed values
+   - externally sourced values
+5. If essential parameters are missing, request them or mark the instance as not solver-ready.
+6. Support negative bids explicitly where allowed by the benchmark cases.
+7. Support transformation yield coefficients explicitly.
 
 ---
 
-# Code Style Guidelines
+## Code Style Guidelines
 
 Python version: 3.10+
 
 Use:
 
-• type hints when appropriate
-• modular design
-• clear docstrings
-• deterministic transformations
+- type hints when appropriate
+- modular design
+- clear docstrings
+- deterministic transformations
+- Pydantic models for the schema
 
 Avoid:
 
-• hard-coding domain assumptions
-• mixing symbolic and numerical logic
-• large monolithic functions
+- hard-coding undocumented assumptions
+- mixing symbolic and numerical logic
+- large monolithic functions
 
 ---
 
-# Testing Policy
+## Testing Policy
 
 Each core module should include unit tests.
 
 Add tests for:
 
-schema validation  
-model generation  
-solver execution  
-theorem checks
+- schema validation
+- solver readiness checks
+- benchmark case structure
+- model generation
+- solver execution for small cases
+
+The first benchmark tests should target:
+
+- Case A
+- Case B
+- Case C
+
+from the supporting information.
 
 ---
 
-# Preferred Libraries
+## Preferred Libraries
 
-Python ecosystem:
+Use:
 
-pyomo  
-pandas  
-numpy  
-pydantic  
-networkx  
-matplotlib  
+- `pydantic`
+- `pyomo`
+- `pandas`
+- `numpy`
+- `networkx`
+- `matplotlib`
 
-Notebook development should be **Colab compatible**.
-
----
-
-# Expected Outputs
-
-The system must support:
-
-• mathematical formulation in LaTeX  
-• symbolic model representation  
-• solver results  
-• explanation of results  
-• theorem applicability statements  
-• scenario comparison
+Notebook development should remain Colab compatible.
 
 ---
 
-# Classroom Mode
+## Classroom Mode
 
 The chatbot should support:
 
-Hint Mode  
-Guided Mode  
-Full Solution Mode
+- Hint Mode
+- Guided Mode
+- Full Solution Mode
 
 Do not always give the final answer immediately.
 
 ---
 
-# Instructions for Codex
+## Instructions for Codex
 
 When implementing code:
 
-• propose modular architecture  
-• prefer small testable components  
-• explain design decisions when helpful  
-• maintain readability for teaching purposes  
+- propose modular architecture
+- preserve clear interfaces
+- keep the benchmark cases in mind
+- prefer small testable components
+- maintain readability for teaching purposes
 
-Favor **clarity and correctness over clever shortcuts**.
+Favor clarity and correctness over clever shortcuts.
 
 ---
 
-# End of AGENTS.md
+# Module Interface Contracts
 
-Describe the agents (roles, responsibilities, coordination) for the chatbot here.
+To ensure that all modules integrate correctly, the following interface rules must be respected.
+
+## ProblemState as the Core Object
+
+All modules must use `ProblemState` as the central object.
+
+Modules must **receive and return `ProblemState` whenever the problem structure is modified**.
+
+Example pattern:
+
+```python
+def update_state(state: ProblemState, data: dict) -> ProblemState:
+    ...
+
+## End of AGENTS.md

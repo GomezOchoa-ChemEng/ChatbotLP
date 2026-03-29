@@ -9,7 +9,7 @@ information (Case A: no transformation, Case B: negative bids,
 Case C: transformation).
 """
 
-from typing import Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
@@ -88,8 +88,13 @@ class Technology(BaseModel):
 
 class TheoremCheck(BaseModel):
     theorem_name: str
+    theorem_id: Optional[str] = None
+    target_section: Optional[str] = None
     applies: Optional[bool] = None
     explanation: Optional[str] = None
+    assumptions_verified: List[str] = Field(default_factory=list)
+    assumptions_missing: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ScenarioRecord(BaseModel):
@@ -104,6 +109,33 @@ class BenchmarkMetadata(BaseModel):
     case_id: Optional[str] = None
     reference_section: Optional[str] = None
     notes: Optional[str] = None
+
+
+class FormalMathContext(BaseModel):
+    """Structured context for theorem-, proof-, and dual-style responses."""
+
+    request_type: str
+    domain_source: str
+    target_section: Optional[str] = None
+    theorem_id: Optional[str] = None
+    applicable: Optional[bool] = None
+    assumptions_verified: List[str] = Field(default_factory=list)
+    assumptions_missing: List[str] = Field(default_factory=list)
+    notation_profile: Dict[str, Any] = Field(default_factory=dict)
+    primal_formulation: Optional[Dict[str, Any]] = None
+    dual_formulation: Optional[Dict[str, Any]] = None
+    objective: Optional[Dict[str, Any]] = None
+    constraints: List[Dict[str, Any]] = Field(default_factory=list)
+    variables: List[Dict[str, Any]] = Field(default_factory=list)
+    dual_variables: List[Dict[str, Any]] = Field(default_factory=list)
+    profit_definitions: List[Dict[str, Any]] = Field(default_factory=list)
+    lagrangian_components: List[Dict[str, Any]] = Field(default_factory=list)
+    benchmark_case: Optional[str] = None
+    supporting_equations: List[str] = Field(default_factory=list)
+    source_notes: List[str] = Field(default_factory=list)
+    latex_mode: str = "align"
+    pedagogical_mode: str = "guided"
+    user_request: Optional[str] = None
 
 
 # ------------------------------------------------

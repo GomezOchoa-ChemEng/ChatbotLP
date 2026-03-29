@@ -127,6 +127,9 @@ def test_case_a_theorems():
     assert any(c.theorem_name.startswith("Case A") and c.applies for c in checks)
     assert any(c.theorem_name.startswith("Case B") and not c.applies for c in checks)
     assert any(c.theorem_name.startswith("Case C") and not c.applies for c in checks)
+    theorem_1 = next(c for c in checks if c.theorem_id == "theorem_1")
+    assert theorem_1.applies is True
+    assert "validated_linear_problem_state" in theorem_1.assumptions_verified
 
 
 def test_case_b_theorems():
@@ -151,3 +154,6 @@ def test_structure_warning():
     struct = next(c for c in checks if "Basic supply-demand" in c.theorem_name)
     assert not struct.applies
     assert "no consumers" in struct.explanation.lower()
+    theorem_1 = next(c for c in checks if c.theorem_id == "theorem_1")
+    assert theorem_1.applies is False
+    assert "basic_supply_demand_structure" in theorem_1.assumptions_missing
