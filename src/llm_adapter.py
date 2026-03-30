@@ -15,13 +15,48 @@ The design uses a registry pattern to allow runtime switching between
 rule-based and LLM-based implementations.
 """
 
-from typing import Dict, Any, Optional
+import json
+import os
+from typing import Callable, Dict, Any, Optional
 from .llm_interfaces import (
     IntentClassifier,
     SupplyChainParser,
     ExplanationGenerator,
     LLMProvider,
 )
+
+
+DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
+
+
+def _safe_json(obj: Any) -> str:
+    """Serialize context objects for prompt construction."""
+
+    if obj is None:
+        return "null"
+
+    if hasattr(obj, "model_dump"):
+        try:
+            return json.dumps(obj.model_dump(), indent=2, default=str)
+        except Exception:
+            pass
+
+    if hasattr(obj, "dict"):
+        try:
+            return json.dumps(obj.dict(), indent=2, default=str)
+        except Exception:
+            pass
+
+    if hasattr(obj, "to_dict"):
+        try:
+            return json.dumps(obj.to_dict(), indent=2, default=str)
+        except Exception:
+            pass
+
+    try:
+        return json.dumps(obj, indent=2, default=str)
+    except Exception:
+        return str(obj)
 
 
 class MockIntentClassifier(IntentClassifier):
@@ -101,6 +136,138 @@ class MockExplanationGenerator(ExplanationGenerator):
             f"[Mock LLM response in {mode} mode "
             f"({mode_descriptions[mode]}) - placeholder implementation]"
         )
+
+
+class GeminiExplanationGenerator(ExplanationGenerator):
+    """Gemini-backed explanation generator using the official Google GenAI SDK."""
+
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        client: Any = None,
+    ):
+        self.model_name = model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+        self._client = client
+
+        if self._client is None:
+            if not os.getenv("GEMINI_API_KEY"):
+                raise ValueError(
+                    "GEMINI_API_KEY not found. In Colab, set it using os.environ or userdata.get(...)."
+                )
+            try:
+                from google import genai
+            except ImportError as exc:
+                raise ImportError(
+                    "google-genai package is required for Gemini explanations. "
+                    "Install with: pip install google-genai"
+                ) from exc
+
+            self._client = genai.Client()
+
+    def generate(self, mode: str, context: Dict[str, Any]) -> str:
+        """Generate a Gemini response from structured context."""
+
+        if mode not in ("hint", "guided", "full"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'hint', 'guided', or 'full'")
+
+        prompt = self._build_prompt(mode, context)
+        try:
+            response = self._client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Gemini API call failed: {exc}") from exc
+
+        response_text = getattr(response, "text", None)
+        if not response_text or not str(response_text).strip():
+            raise RuntimeError("Gemini API call returned an empty text response")
+        return str(response_text).strip()
+
+    def _build_prompt(self, mode: str, context: Dict[str, Any]) -> str:
+        """Build a Gemini prompt from the current structured context."""
+
+        context_type = context.get("type", "general")
+        if context_type == "formal_math":
+            return self._build_formal_math_prompt(mode, context)
+        return self._build_general_prompt(mode, context)
+
+    def _build_general_prompt(self, mode: str, context: Dict[str, Any]) -> str:
+        user_message = context.get("user_message", "")
+        intent = context.get("intent", "")
+        problem_state = _safe_json(context.get("problem_state"))
+        validation_result = _safe_json(context.get("validation_result"))
+        solve_result = _safe_json(context.get("solve_result"))
+        theorem_checks = _safe_json(context.get("theorem_checks"))
+        scenario_result = _safe_json(context.get("scenario_result"))
+
+        mode_instruction = {
+            "hint": "Provide a short hint tied to the supplied instance. Do not give a full solution.",
+            "guided": "Provide a guided explanation tied to the supplied instance and current structured state.",
+            "full": "Provide a complete explanation tied to the supplied instance and current structured state.",
+        }[mode]
+
+        return f"""
+You are an assistant for a deterministic coordinated supply chain optimization chatbot.
+
+Stay grounded in the supplied structured context.
+Do not fabricate data, entity IDs, theorem applicability, or solver results.
+If information is missing, state that clearly.
+
+MODE:
+{mode_instruction}
+
+USER MESSAGE:
+{user_message}
+
+INTENT:
+{intent}
+
+PROBLEM STATE:
+{problem_state}
+
+VALIDATION RESULT:
+{validation_result}
+
+SOLVE RESULT:
+{solve_result}
+
+THEOREM CHECKS:
+{theorem_checks}
+
+SCENARIO RESULT:
+{scenario_result}
+""".strip()
+
+    def _build_formal_math_prompt(self, mode: str, context: Dict[str, Any]) -> str:
+        formal_math_request = context.get("formal_math_request", "")
+        prompt_constraints = context.get("prompt_constraints", [])
+        formal_math_context = _safe_json(context.get("formal_math_context"))
+
+        return f"""
+You are writing a bounded mathematical exposition for ChatbotLP using the Sampat et al. (2019) Sections 2.1-2.3 support implemented in the repository.
+
+The deterministic system remains the mathematical authority.
+Use only the supplied notation and structured context.
+Do not invent symbols, assumptions, theorem applicability, or model structure.
+If assumptions are missing, say so plainly.
+If the theorem or request is outside the supported scope, say so plainly.
+When LaTeX is appropriate, write polished plain-text LaTeX suitable for direct display.
+For dual requests, write a clean optimization model with objective, constraints, and sign restrictions.
+For theorem-proof requests, prefer a theorem statement followed by a proof environment.
+
+MODE:
+{mode}
+
+FORMAL MATH REQUEST:
+{formal_math_request}
+
+PROMPT CONSTRAINTS:
+{_safe_json(prompt_constraints)}
+
+FORMAL MATH CONTEXT:
+{formal_math_context}
+""".strip()
 
 
 class RuleBasedIntentClassifierAdapter(IntentClassifier):
@@ -188,6 +355,44 @@ class MockLLMProvider(LLMProvider):
     def get_explanation_generator(self) -> ExplanationGenerator:
         """Return a MockExplanationGenerator."""
         return MockExplanationGenerator()
+
+
+class GeminiLLMProvider(LLMProvider):
+    """Provider with Gemini-backed explanations and explicit classifier/parser choices."""
+
+    def __init__(
+        self,
+        intent_router: Any = None,
+        parse_function: Optional[Callable[[str], Dict[str, Any]]] = None,
+        model_name: Optional[str] = None,
+        client: Any = None,
+    ):
+        self.intent_router = intent_router
+        self.parse_function = parse_function
+        self.model_name = model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+        self.client = client
+        self._generator: Optional[GeminiExplanationGenerator] = None
+
+    def get_intent_classifier(self) -> IntentClassifier:
+        """Prefer the supplied rule-based router; otherwise use the mock classifier."""
+        if self.intent_router is not None:
+            return RuleBasedIntentClassifierAdapter(self.intent_router)
+        return MockIntentClassifier()
+
+    def get_parser(self) -> SupplyChainParser:
+        """Prefer the supplied rule-based parser; otherwise use the mock parser."""
+        if self.parse_function is not None:
+            return RuleBasedParserAdapter(self.parse_function)
+        return MockSupplyChainParser()
+
+    def get_explanation_generator(self) -> ExplanationGenerator:
+        """Return a lazily initialized Gemini explanation generator."""
+        if self._generator is None:
+            self._generator = GeminiExplanationGenerator(
+                model_name=self.model_name,
+                client=self.client,
+            )
+        return self._generator
 
 
 class RuleBasedProvider(LLMProvider):
@@ -313,3 +518,46 @@ class LLMProviderRegistry:
     def get_explanation_generator(self) -> ExplanationGenerator:
         """Convenience method to get the explanation generator from the active provider."""
         return self.get_provider().get_explanation_generator()
+
+
+def get_active_provider_debug_info() -> str:
+    """Return a short debug string showing the active provider and model."""
+
+    provider = LLMProviderRegistry.get_instance().get_provider()
+    provider_name = provider.__class__.__name__
+    model_name = getattr(provider, "model_name", None)
+    if model_name:
+        return f"Active provider: {provider_name}; active model: {model_name}"
+    return f"Active provider: {provider_name}; active model: deterministic fallback / n/a"
+
+
+def print_active_provider_debug_info() -> str:
+    """Print and return the active provider debug string."""
+
+    message = get_active_provider_debug_info()
+    print(message)
+    return message
+
+
+def configure_gemini_provider(
+    model_name: Optional[str] = None,
+    client: Any = None,
+) -> GeminiLLMProvider:
+    """Register Gemini as the active provider with rule-based routing/parsing.
+
+    This helper does not auto-enable Gemini. Call it explicitly when you want
+    `use_llm=True` requests to use Gemini for explanation generation.
+    """
+
+    from .chatbot_engine import IntentRouter
+    from .parser import parse_supply_chain_text
+
+    provider = GeminiLLMProvider(
+        intent_router=IntentRouter(),
+        parse_function=parse_supply_chain_text,
+        model_name=model_name,
+        client=client,
+    )
+    registry = LLMProviderRegistry.get_instance()
+    registry.set_provider(provider)
+    return provider

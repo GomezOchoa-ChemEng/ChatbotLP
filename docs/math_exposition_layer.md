@@ -44,7 +44,7 @@ The LLM may polish exposition, but it must not invent:
   Performs lightweight pre-generation and post-generation checks.
 
 - `src/math_response_generator.py`
-  Produces bounded mathematical exposition and uses the existing `llm_adapter` abstraction when available.
+  Produces bounded mathematical exposition and uses the existing `llm_adapter` abstraction when available. When Gemini is configured through the provider registry, polishing can be Gemini-backed while deterministic checks remain authoritative.
 
 ## Supported Sampat Scope
 

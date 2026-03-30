@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path.cwd()))
 
 from src.formal_context_builder import build_formal_math_context
 from src.math_response_generator import generate_math_response
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
+from src.llm_adapter import LLMProviderRegistry, GeminiLLMProvider
 
 
 def make_state() -> ProblemState:
@@ -63,3 +65,18 @@ def test_out_of_scope_theorem_request_is_explicit():
     context = build_formal_math_context(state, "Show me that Theorem 9 holds.")
     response = generate_math_response(context, use_llm=False)
     assert "out of scope" in response
+
+
+def test_math_response_falls_back_when_gemini_is_misconfigured():
+    registry = LLMProviderRegistry.get_instance()
+    registry.reset()
+    registry.set_provider(GeminiLLMProvider(client=None))
+
+    try:
+        with patch.dict("os.environ", {}, clear=True):
+            state = make_state()
+            context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
+            response = generate_math_response(context, use_llm=True)
+            assert "\\begin{aligned}" in response
+    finally:
+        registry.reset()

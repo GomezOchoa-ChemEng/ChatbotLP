@@ -8,7 +8,10 @@ Tests cover:
 """
 
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
+import types
+import sys
+import os
 
 from src.llm_interfaces import (
     IntentClassifier,
@@ -26,6 +29,12 @@ from src.llm_adapter import (
     MockLLMProvider,
     RuleBasedProvider,
     LLMProviderRegistry,
+    GeminiExplanationGenerator,
+    GeminiLLMProvider,
+    configure_gemini_provider,
+    DEFAULT_GEMINI_MODEL,
+    get_active_provider_debug_info,
+    print_active_provider_debug_info,
 )
 
 
@@ -141,6 +150,132 @@ class TestMockExplanationGenerator(unittest.TestCase):
         for context in [{}, {"some": "data"}, {"problem_state": None}]:
             result = self.generator.generate("hint", context)
             self.assertIsInstance(result, str)
+
+
+class TestGeminiExplanationGenerator(unittest.TestCase):
+    """Test Gemini-backed explanation generator with mocked SDK calls."""
+
+    def _install_google_genai_stub(self, response_text="Gemini response"):
+        google_module = types.ModuleType("google")
+        genai_module = types.ModuleType("google.genai")
+
+        mock_response = Mock()
+        mock_response.text = response_text
+
+        mock_models = Mock()
+        mock_models.generate_content.return_value = mock_response
+
+        mock_client = Mock()
+        mock_client.models = mock_models
+
+        genai_module.Client = Mock(return_value=mock_client)
+        google_module.genai = genai_module
+        return google_module, genai_module, mock_client
+
+    def test_init_requires_api_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(
+                ValueError,
+                "GEMINI_API_KEY not found. In Colab, set it using os.environ or userdata.get",
+            ):
+                GeminiExplanationGenerator()
+
+    def test_init_requires_sdk_when_not_injected(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            with patch.dict(sys.modules, {"google": None}):
+                with self.assertRaises(ImportError):
+                    GeminiExplanationGenerator()
+
+    def test_generate_calls_official_sdk_shape(self):
+        google_module, genai_module, mock_client = self._install_google_genai_stub()
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            with patch.dict(sys.modules, {"google": google_module, "google.genai": genai_module}):
+                generator = GeminiExplanationGenerator(model_name="gemini-test")
+                result = generator.generate("full", {"user_message": "Explain the model"})
+
+        self.assertEqual(result, "Gemini response")
+        mock_client.models.generate_content.assert_called_once()
+        call = mock_client.models.generate_content.call_args
+        self.assertEqual(call.kwargs["model"], "gemini-test")
+        self.assertIn("Explain the model", call.kwargs["contents"])
+
+    def test_default_model_constant(self):
+        self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3-flash-preview")
+
+    def test_formal_math_prompt_building(self):
+        generator = GeminiExplanationGenerator(client=Mock(), model_name="gemini-test")
+        prompt = generator._build_prompt(
+            "full",
+            {
+                "type": "formal_math",
+                "formal_math_request": "dual",
+                "prompt_constraints": ["use only supplied notation"],
+                "formal_math_context": {"theorem_id": "theorem_1"},
+            },
+        )
+        self.assertIn("formal math", prompt.lower())
+        self.assertIn("use only supplied notation", prompt)
+        self.assertIn("theorem_1", prompt)
+
+    def test_generate_raises_clean_runtime_error(self):
+        mock_client = Mock()
+        mock_client.models.generate_content.side_effect = Exception("api down")
+        generator = GeminiExplanationGenerator(client=mock_client, model_name="gemini-test")
+        with self.assertRaises(RuntimeError):
+            generator.generate("full", {"user_message": "Explain"})
+
+
+class TestGeminiLLMProvider(unittest.TestCase):
+    """Test Gemini provider behavior inside the registry architecture."""
+
+    def setUp(self):
+        self.registry = LLMProviderRegistry.get_instance()
+        self.registry.reset()
+
+    def tearDown(self):
+        self.registry.reset()
+
+    def test_provider_registration_helper(self):
+        provider = configure_gemini_provider(client=Mock())
+        self.assertIsInstance(provider, GeminiLLMProvider)
+        self.assertIs(self.registry.get_provider(), provider)
+
+    def test_provider_uses_rule_based_classifier_and_parser_when_supplied(self):
+        router = Mock(detect_intent=Mock(return_value="validation"))
+        parse_function = Mock(return_value={"nodes": [], "products": [], "suppliers": [], "consumers": [], "transport_links": [], "technologies": [], "bids": []})
+        provider = GeminiLLMProvider(
+            intent_router=router,
+            parse_function=parse_function,
+            client=Mock(),
+        )
+        classifier = provider.get_intent_classifier()
+        parser = provider.get_parser()
+        self.assertEqual(classifier.classify("Validate"), "validation")
+        parser.parse("text")
+        parse_function.assert_called_once_with("text")
+
+    def test_provider_missing_api_key_surfaces_at_generator_use(self):
+        provider = GeminiLLMProvider(client=None)
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(
+                ValueError,
+                "GEMINI_API_KEY not found. In Colab, set it using os.environ or userdata.get",
+            ):
+                provider.get_explanation_generator()
+
+    def test_get_active_provider_debug_info_for_gemini(self):
+        provider = GeminiLLMProvider(client=Mock(), model_name="gemini-test")
+        self.registry.set_provider(provider)
+        message = get_active_provider_debug_info()
+        self.assertIn("GeminiLLMProvider", message)
+        self.assertIn("gemini-test", message)
+
+    def test_print_active_provider_debug_info_for_default_provider(self):
+        with patch("builtins.print") as mock_print:
+            message = print_active_provider_debug_info()
+        self.assertIn("RuleBasedProvider", message)
+        self.assertIn("deterministic fallback", message)
+        mock_print.assert_called_once()
 
 
 class TestConvenienceFunctions(unittest.TestCase):

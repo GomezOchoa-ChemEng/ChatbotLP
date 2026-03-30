@@ -6,3 +6,4 @@ networkx>=3.2
 matplotlib>=3.8
 jupyter>=1.0
 ipykernel>=6.29
+google-genai>=1.0

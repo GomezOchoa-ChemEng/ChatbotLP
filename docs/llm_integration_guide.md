@@ -18,6 +18,7 @@ The system includes:
 - Mock implementations (placeholder behavior, no external API calls)
 - Rule-based adapters (wrap existing deterministic algorithms)
 - A provider registry (switch implementations at runtime)
+- A Gemini-backed explanation generator via the official Google GenAI SDK
 
 Design Principles
 ==================
@@ -31,6 +32,110 @@ Design Principles
 
 Usage Examples
 ==============
+
+Gemini Provider
+================
+
+The repository now supports a Gemini-backed explanation path through
+`src.llm_adapter.py` while preserving the existing provider registry.
+
+Dependency
+----------
+
+Install the official SDK:
+
+```bash
+pip install -U google-genai
+```
+
+Environment Variables
+---------------------
+
+- `GEMINI_API_KEY` (required for Gemini-backed generation)
+- `GEMINI_MODEL` (optional, defaults to `gemini-3-flash-preview` in `src/llm_adapter.py`)
+
+Local Usage
+-----------
+
+Set the key in your shell before running Python:
+
+```powershell
+$env:GEMINI_API_KEY="your_api_key_here"
+$env:GEMINI_MODEL="gemini-3-flash-preview"
+```
+
+Colab Usage
+-----------
+
+You can set the key directly:
+
+```python
+import os
+
+os.environ["GEMINI_API_KEY"] = "your_api_key_here"
+```
+
+Or use Colab secure storage:
+
+```python
+import os
+from google.colab import userdata
+
+os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")
+```
+
+If the key is missing, the Gemini layer raises this actionable message:
+
+`GEMINI_API_KEY not found. In Colab, set it using os.environ or userdata.get(...).`
+
+Registration
+------------
+
+```python
+from src.llm_adapter import configure_gemini_provider, print_active_provider_debug_info
+
+configure_gemini_provider()
+print_active_provider_debug_info()
+```
+
+This helper registers a `GeminiLLMProvider` that:
+
+- keeps rule-based intent routing
+- keeps rule-based parsing
+- uses Gemini for explanation generation
+
+Using Gemini In The Chatbot
+---------------------------
+
+```python
+from src.chatbot_engine import run_chatbot_session
+from src.llm_adapter import configure_gemini_provider, print_active_provider_debug_info
+
+configure_gemini_provider()
+print_active_provider_debug_info()
+
+result = run_chatbot_session(
+    state=problem_state,
+    user_message="Give me the dual problem in LaTeX.",
+    mode="full",
+    use_llm=True,
+)
+```
+
+Deterministic Components Still In Charge
+----------------------------------------
+
+Gemini does not replace:
+
+- `ProblemState`
+- `validator`
+- `model_builder`
+- `solver`
+- `theorem_checker`
+- deterministic fallback generation
+
+If Gemini is not configured, unavailable, or the API call fails, the existing
+callers fall back to deterministic output.
 
 Example 1: Use the default rule-based system
 ---------------------------------------------
