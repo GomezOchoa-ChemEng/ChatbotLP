@@ -104,10 +104,19 @@ THEOREM_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Conclude only within the verified scope of the current ProblemState.",
         ],
         "statement_template": (
-            "For the validated linear coordinated-clearing instance, the primal welfare-maximization "
-            "formulation and the supported dual price system are consistent within the scoped Sections 2.1-2.2 interpretation."
+            "Consider the coordinated clearing problem written as a linear welfare-maximization model "
+            "with node-product balance equations, nonnegative activity variables, and explicit upper bounds "
+            "for the supported bid and transport quantities. Then every optimal primal solution admits a "
+            "compatible dual price system, and the associated primal-dual pair supports the competitive "
+            "interpretation used in Sections 2.1 and 2.2."
         ),
         "proof_style": "concise OR / mathematical programming proof",
+        "mathematical_assumptions": {
+            "validated_linear_problem_state": "the coordinated clearing problem is a well-posed linear program",
+            "basic_supply_demand_structure": "the instance contains both supply-side and demand-side participation",
+            "finite_bid_data": "all bid coefficients are finite",
+            "technology_yields_specified_when_present": "any transformation technology present has explicit yield coefficients",
+        },
         "source_notes": [
             "Scoped to the Sections 2.1-2.2 exposition supported by this repository.",
             "Applicability is determined by deterministic structural checks, not by the LLM.",

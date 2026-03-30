@@ -48,6 +48,10 @@ def test_theorem_proof_generation_has_proof_environment():
     assert "\\textbf{Theorem 1.}" in response
     assert "\\begin{proof}" in response
     assert "\\end{proof}" in response
+    assert "validated_linear_problem_state" not in response
+    assert "assumptions_verified" not in response
+    assert "ProblemState" not in response
+    assert "Assume that" in response
 
 
 def test_theorem_proof_missing_assumptions_fails_cleanly():
@@ -56,8 +60,10 @@ def test_theorem_proof_missing_assumptions_fails_cleanly():
     context = build_formal_math_context(state, "Show me that Theorem 1 holds.")
     response = generate_math_response(context, use_llm=False)
     assert "cannot certify" in response
-    assert "Missing assumptions" in response
     assert "\\begin{proof}" not in response
+    assert "validated_linear_problem_state" not in response
+    assert "assumptions_verified" not in response
+    assert "ProblemState" not in response
 
 
 def test_out_of_scope_theorem_request_is_explicit():

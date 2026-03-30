@@ -77,6 +77,7 @@ class MathResponseGenerator:
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
                     "for theorem_1, prefer a polished theorem statement followed by a proof environment",
                     "if the request is out of scope, say so plainly and do not improvise",
+                    "do not expose internal metadata labels such as validated_linear_problem_state, assumptions_verified, ProblemState, or raw field names",
                 ],
                 "formal_math_context": context.dict(),
             }
@@ -129,6 +130,22 @@ class MathResponseGenerator:
     def _objective_coefficient_text(self, condition: Dict[str, object]) -> str:
         coefficient = float(condition.get("objective_coefficient", 0.0))
         return self._format_scalar(coefficient)
+
+    def _theorem_assumption_text(self, context: FormalMathContext) -> List[str]:
+        theorem_metadata = get_theorem_metadata(context.theorem_id or "") or {}
+        mathematical_assumptions = theorem_metadata.get("mathematical_assumptions", {})
+        return [
+            mathematical_assumptions.get(item, item.replace("_", " "))
+            for item in context.assumptions_verified
+        ]
+
+    def _missing_assumption_text(self, context: FormalMathContext) -> List[str]:
+        theorem_metadata = get_theorem_metadata(context.theorem_id or "") or {}
+        mathematical_assumptions = theorem_metadata.get("mathematical_assumptions", {})
+        return [
+            mathematical_assumptions.get(item, item.replace("_", " "))
+            for item in context.assumptions_missing
+        ]
 
     def _dual_condition_rhs(self, condition: Dict[str, object]) -> str:
         return self._objective_coefficient_text(condition)
@@ -202,22 +219,19 @@ class MathResponseGenerator:
                 "Only theorem identifiers explicitly curated for Sampat et al. (2019) Sections 2.1-2.3 are supported."
             )
 
-        skeleton = theorem_metadata.get("proof_skeleton", [])
+        stated_assumptions = self._theorem_assumption_text(context)
+        missing_assumptions = self._missing_assumption_text(context)
         if context.applicable is not True or context.assumptions_missing:
             return (
-                f"Theorem proof request for `{context.theorem_id}` cannot certify that the theorem holds for the current ProblemState.\n\n"
+                f"Theorem {context.theorem_id.split('_')[-1] if context.theorem_id else ''} cannot certify that the claimed conclusion holds for the current instance.\n\n"
                 "Missing assumptions:\n- "
-                + "\n- ".join(context.assumptions_missing)
-                + (
-                    "\n\nThe request remains within scope, but the deterministic checker has not verified the prerequisites needed for a theorem-style proof."
-                    if theorem_metadata
-                    else "\n\nThe requested theorem is outside the supported scope."
-                )
+                + "\n- ".join(missing_assumptions or ["required assumptions are incomplete"])
+                + "\n\nWithin the present deterministic scope, the appropriate conclusion is that the theorem has not yet been verified for this coordinated clearing model."
             )
 
         theorem_number = context.theorem_id.split("_")[-1] if context.theorem_id else ""
         statement = theorem_metadata.get("statement_template", "Supported theorem statement.")
-        verified_assumptions = ", ".join(context.assumptions_verified) or "none"
+        verified_assumptions = ", ".join(stated_assumptions) or "none"
         benchmark_case = context.benchmark_case or "supported benchmark family"
         proof_style = theorem_metadata.get("proof_style", "proof")
 
@@ -230,34 +244,29 @@ class MathResponseGenerator:
             "",
             f"\\textit{{{proof_style}, grounded in the verified structured context.}}",
             "",
-            f"Verified assumptions: {verified_assumptions}.",
+            f"Assume that {verified_assumptions}.",
             f"Benchmark interpretation: {benchmark_case}.",
             "",
             "\\begin{itemize}",
-            *[f"\\item {item}" for item in context.assumptions_verified],
+            *[f"\\item {item}" for item in stated_assumptions],
             "\\end{itemize}",
             "",
             "\\begin{proof}",
-            "The current `ProblemState` induces a linear coordinated-clearing model with nonnegative primal variables "
-            "$q_b$, $f_{ij}$, and $x_k$, together with node-product balance equalities and explicit upper-bound constraints "
-            "for supported bid and transport quantities.",
-            "By construction, the validator and theorem checker have already confirmed that the instance is solver-ready within the "
-            "implemented scope, so the primal model is a well-posed linear program.",
-            "Associate a free multiplier $\\pi_{np}$ with each node-product balance constraint and nonnegative multipliers "
-            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ with the supported supplier, consumer, and transport upper bounds, respectively.",
-            "Forming the Lagrangian and collecting coefficients of each nonnegative primal variable yields the dual feasibility "
-            "conditions appearing in the dual formulation rendered by this layer.",
-            "Because the primal is a linear maximization problem with affine constraints and the required feasibility structure has been "
-            "verified deterministically, the standard linear-programming duality argument applies on the supported domain.",
-            "Therefore the coordinated-clearing formulation and its associated price system are consistent for the present instance, "
-            "which is exactly the scoped conclusion asserted here for Theorem "
+            "Let the primal coordinated clearing problem maximize total surplus over nonnegative variables "
+            "$q_b$, $f_{ij}$, and $x_k$, subject to the node-product balance equations and the explicit upper bounds "
+            "for the supported bid and transport activities.",
+            "Under the stated assumptions, this problem is a feasible linear program with finite objective coefficients. "
+            "Associate a free multiplier $\\pi_{np}$ with each node-product balance equation and nonnegative multipliers "
+            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ with the corresponding supplier, consumer, and transport bounds.",
+            "The Lagrangian is obtained by adjoining these constraints to the primal objective. Grouping terms by "
+            "$q_b$, $f_{ij}$, and $x_k$ yields the dual feasibility inequalities, while the coefficients of the right-hand sides "
+            "produce the dual objective.",
+            "Since the model is linear and the admitted constraint families are affine, the standard duality theorem of linear programming applies. "
+            "Hence an optimal primal solution is accompanied by a dual-feasible price system, and complementary slackness provides the equilibrium-style interpretation of the active bids, flows, and technologies.",
+            "Accordingly, the primal welfare-maximization problem and the associated dual price system are mutually consistent, which establishes the statement of Theorem "
             + theorem_number
-            + ".",
+            + " within the supported Sampat Sections 2.1-2.2 scope.",
         ]
-        if skeleton:
-            lines.append("")
-            lines.append("Proof outline used:")
-            lines.extend(f"- {step}" for step in skeleton)
         lines.append("\\end{proof}")
         return "\n".join(lines)
 
