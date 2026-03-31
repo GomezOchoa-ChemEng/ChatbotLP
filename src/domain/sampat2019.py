@@ -104,11 +104,12 @@ THEOREM_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Conclude only within the verified scope of the current ProblemState.",
         ],
         "statement_template": (
-            "Consider the coordinated clearing problem written as a linear welfare-maximization model "
-            "with node-product balance equations, nonnegative activity variables, and explicit upper bounds "
-            "for the supported bid and transport quantities. Then every optimal primal solution admits a "
-            "compatible dual price system, and the associated primal-dual pair supports the competitive "
-            "interpretation used in Sections 2.1 and 2.2."
+            "Let the coordinated clearing problem be written as a linear surplus-maximization model in the variables "
+            "$q_b$, $f_{ij}$, and $x_k$, with node-product balance equations and explicit upper bounds on the supported "
+            "bid and transport activities. Assume that the coefficients are finite and that any transformation technology "
+            "present is represented by explicit yield coefficients. Then every optimal primal solution admits dual multipliers "
+            "$\\pi_{np}$, $\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ satisfying the associated dual system, and $\\pi_{np}$ has the "
+            "interpretation of a node-product price."
         ),
         "proof_style": "concise OR / mathematical programming proof",
         "mathematical_assumptions": {

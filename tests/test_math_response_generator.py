@@ -48,10 +48,12 @@ def test_theorem_proof_generation_has_proof_environment():
     assert "\\textbf{Theorem 1.}" in response
     assert "\\begin{proof}" in response
     assert "\\end{proof}" in response
+    assert "Lagrangian" in response
+    assert "node-product prices" in response
     assert "validated_linear_problem_state" not in response
     assert "assumptions_verified" not in response
     assert "ProblemState" not in response
-    assert "Assume that" in response
+    assert "Benchmark interpretation" not in response
 
 
 def test_theorem_proof_missing_assumptions_fails_cleanly():

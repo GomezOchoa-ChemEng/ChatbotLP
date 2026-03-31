@@ -131,14 +131,6 @@ class MathResponseGenerator:
         coefficient = float(condition.get("objective_coefficient", 0.0))
         return self._format_scalar(coefficient)
 
-    def _theorem_assumption_text(self, context: FormalMathContext) -> List[str]:
-        theorem_metadata = get_theorem_metadata(context.theorem_id or "") or {}
-        mathematical_assumptions = theorem_metadata.get("mathematical_assumptions", {})
-        return [
-            mathematical_assumptions.get(item, item.replace("_", " "))
-            for item in context.assumptions_verified
-        ]
-
     def _missing_assumption_text(self, context: FormalMathContext) -> List[str]:
         theorem_metadata = get_theorem_metadata(context.theorem_id or "") or {}
         mathematical_assumptions = theorem_metadata.get("mathematical_assumptions", {})
@@ -219,7 +211,6 @@ class MathResponseGenerator:
                 "Only theorem identifiers explicitly curated for Sampat et al. (2019) Sections 2.1-2.3 are supported."
             )
 
-        stated_assumptions = self._theorem_assumption_text(context)
         missing_assumptions = self._missing_assumption_text(context)
         if context.applicable is not True or context.assumptions_missing:
             return (
@@ -231,8 +222,6 @@ class MathResponseGenerator:
 
         theorem_number = context.theorem_id.split("_")[-1] if context.theorem_id else ""
         statement = theorem_metadata.get("statement_template", "Supported theorem statement.")
-        verified_assumptions = ", ".join(stated_assumptions) or "none"
-        benchmark_case = context.benchmark_case or "supported benchmark family"
         proof_style = theorem_metadata.get("proof_style", "proof")
 
         lines = [
@@ -244,28 +233,16 @@ class MathResponseGenerator:
             "",
             f"\\textit{{{proof_style}, grounded in the verified structured context.}}",
             "",
-            f"Assume that {verified_assumptions}.",
-            f"Benchmark interpretation: {benchmark_case}.",
-            "",
-            "\\begin{itemize}",
-            *[f"\\item {item}" for item in stated_assumptions],
-            "\\end{itemize}",
-            "",
             "\\begin{proof}",
-            "Let the primal coordinated clearing problem maximize total surplus over nonnegative variables "
-            "$q_b$, $f_{ij}$, and $x_k$, subject to the node-product balance equations and the explicit upper bounds "
-            "for the supported bid and transport activities.",
-            "Under the stated assumptions, this problem is a feasible linear program with finite objective coefficients. "
-            "Associate a free multiplier $\\pi_{np}$ with each node-product balance equation and nonnegative multipliers "
-            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ with the corresponding supplier, consumer, and transport bounds.",
-            "The Lagrangian is obtained by adjoining these constraints to the primal objective. Grouping terms by "
-            "$q_b$, $f_{ij}$, and $x_k$ yields the dual feasibility inequalities, while the coefficients of the right-hand sides "
-            "produce the dual objective.",
-            "Since the model is linear and the admitted constraint families are affine, the standard duality theorem of linear programming applies. "
-            "Hence an optimal primal solution is accompanied by a dual-feasible price system, and complementary slackness provides the equilibrium-style interpretation of the active bids, flows, and technologies.",
-            "Accordingly, the primal welfare-maximization problem and the associated dual price system are mutually consistent, which establishes the statement of Theorem "
+            "Form the Lagrangian by attaching a free multiplier $\\pi_{np}$ to each node-product balance equation and nonnegative multipliers "
+            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ to the supported supplier, consumer, and transport upper bounds.",
+            "Collecting coefficients of $q_b$, $f_{ij}$, and $x_k$ yields the dual inequalities associated with accepted bids, transport flows, and transformation activities; "
+            "the right-hand-side terms yield the dual objective.",
+            "Hence any optimal primal-dual pair satisfies stationarity and complementary slackness. In particular, whenever an activity is accepted at positive level, "
+            "its reduced-cost relation binds, so the multipliers $\\pi_{np}$ support the allocation as node-product prices.",
+            "Therefore the optimal clearing allocation and the associated price system are jointly characterized by the primal-dual pair, proving Theorem "
             + theorem_number
-            + " within the supported Sampat Sections 2.1-2.2 scope.",
+            + ".",
         ]
         lines.append("\\end{proof}")
         return "\n".join(lines)
