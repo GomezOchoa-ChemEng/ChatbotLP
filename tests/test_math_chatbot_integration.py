@@ -22,7 +22,10 @@ def test_chatbot_routes_dual_request():
     result = run_chatbot_session(make_state(), "Give me the dual problem in LaTeX.")
     assert result["intent"] == "formal_math"
     assert result["success"]
+    assert result["render_mode"] == "markdown_latex"
+    assert "**Dual Problem.**" in result["response"]
     assert "\\begin{aligned}" in result["response"]
+    assert "\\documentclass" not in result["response"]
 
 
 def test_chatbot_routes_theorem_request():
@@ -30,7 +33,10 @@ def test_chatbot_routes_theorem_request():
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert "Theorem" in result["response"]
+    assert result["render_mode"] == "markdown_latex"
+    assert "**Proof.**" in result["response"]
     assert "strong duality" in result["response"]
+    assert "\\begin{proof}" not in result["response"]
     assert "validated_linear_problem_state" not in result["response"]
     assert "assumptions_verified" not in result["response"]
     assert "ProblemState" not in result["response"]

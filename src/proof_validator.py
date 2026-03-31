@@ -59,6 +59,17 @@ def validate_generated_math_response(
         if context.request_type == "theorem_proof" and not missing_disclosure:
             issues.append("Response did not clearly disclose missing assumptions.")
 
+    forbidden_wrappers = [
+        "\\documentclass",
+        "\\usepackage",
+        "\\begin{document}",
+        "\\end{document}",
+    ]
+    for wrapper in forbidden_wrappers:
+        if wrapper in response_text:
+            issues.append("Response must be a render-ready LaTeX fragment, not a full document.")
+            break
+
     if context.request_type == "dual":
         for dual_variable in context.dual_variables:
             if dual_variable["symbol"] not in response_text:
@@ -67,11 +78,17 @@ def validate_generated_math_response(
                 )
         if "\\min" not in response_text or "\\text{s.t.}" not in response_text:
             issues.append("Dual response is missing standard optimization LaTeX structure.")
+        if "$$" not in response_text and "\\[" not in response_text:
+            issues.append("Dual response should expose a notebook-friendly display-math block.")
 
     if context.request_type == "theorem_proof":
         if context.applicable is True:
-            if "\\begin{proof}" not in response_text or "\\end{proof}" not in response_text:
-                issues.append("Proof response is missing a LaTeX proof environment.")
+            lowered = response_text.lower()
+            has_proof_marker = "\\begin{proof}" in response_text or "**proof.**" in lowered or "\\textbf{proof.}" in lowered
+            if not has_proof_marker:
+                issues.append("Proof response is missing a clear proof label.")
+            if "$$" not in response_text and "\\[" not in response_text:
+                issues.append("Proof response should expose at least one notebook-friendly display-math block.")
         else:
             lowered = response_text.lower()
             if "cannot certify" not in lowered and "out of scope" not in lowered:

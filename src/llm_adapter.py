@@ -253,8 +253,10 @@ Do not invent symbols, assumptions, theorem applicability, or model structure.
 If assumptions are missing, say so plainly.
 If the theorem or request is outside the supported scope, say so plainly.
 When LaTeX is appropriate, write polished plain-text LaTeX suitable for direct display.
+Return render-ready LaTeX fragments for notebooks, not standalone LaTeX documents.
+Do not include documentclass, usepackage, begin{{document}}, end{{document}}, or theorem/proof environments.
 For dual requests, write a clean optimization model with objective, constraints, and sign restrictions.
-For theorem-proof requests, prefer a theorem statement followed by a proof environment.
+For theorem-proof requests, prefer a bold theorem heading, display-math blocks where helpful, and a clear Proof. label.
 
 MODE:
 {mode}

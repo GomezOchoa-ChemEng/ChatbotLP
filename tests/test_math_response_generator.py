@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path.cwd()))
 
 from src.formal_context_builder import build_formal_math_context
-from src.math_response_generator import generate_math_response
+from src.math_response_generator import generate_math_response, strip_full_latex_document
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
 from src.llm_adapter import LLMProviderRegistry, GeminiLLMProvider
 
@@ -25,12 +25,18 @@ def test_dual_generation_without_llm():
     state = make_state()
     context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
     response = generate_math_response(context, use_llm=False)
+    assert "**Dual Problem.**" in response
+    assert "$$" in response
     assert "\\begin{aligned}" in response
     assert "\\pi_{n1,p1}" in response
     assert "\\min \\quad" in response
     assert "\\text{s.t.}" in response
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
+    assert "\\documentclass" not in response
+    assert "\\usepackage" not in response
+    assert "\\begin{document}" not in response
+    assert "\\end{document}" not in response
 
 
 def test_theorem_generation_without_llm():
@@ -41,17 +47,23 @@ def test_theorem_generation_without_llm():
     assert "Verified assumptions" in response
 
 
-def test_theorem_proof_generation_has_proof_environment():
+def test_theorem_proof_generation_is_notebook_friendly_fragment():
     state = make_state()
     context = build_formal_math_context(state, "Show me that Theorem 1 holds.")
     response = generate_math_response(context, use_llm=False)
-    assert "\\textbf{Theorem 1.}" in response
-    assert "\\begin{proof}" in response
-    assert "\\end{proof}" in response
+    assert "**Theorem 1.**" in response
+    assert "**Proof.**" in response
+    assert "$$" in response
     assert "Lagrangian" in response
     assert "node-product prices" in response
     assert "strong duality" in response
-    assert "$z_P^* = z_D^*$" in response
+    assert "z_P^* = z_D^*" in response
+    assert "\\begin{proof}" not in response
+    assert "\\end{proof}" not in response
+    assert "\\documentclass" not in response
+    assert "\\usepackage" not in response
+    assert "\\begin{document}" not in response
+    assert "\\end{document}" not in response
     assert "validated_linear_problem_state" not in response
     assert "assumptions_verified" not in response
     assert "ProblemState" not in response
@@ -65,6 +77,7 @@ def test_theorem_proof_missing_assumptions_fails_cleanly():
     response = generate_math_response(context, use_llm=False)
     assert "cannot certify" in response
     assert "\\begin{proof}" not in response
+    assert "\\documentclass" not in response
     assert "validated_linear_problem_state" not in response
     assert "assumptions_verified" not in response
     assert "ProblemState" not in response
@@ -88,5 +101,37 @@ def test_math_response_falls_back_when_gemini_is_misconfigured():
             context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
             response = generate_math_response(context, use_llm=True)
             assert "\\begin{aligned}" in response
+            assert "\\documentclass" not in response
     finally:
         registry.reset()
+
+
+def test_strip_full_latex_document_normalizes_notebook_fragment_artifacts():
+    raw = r"""
+```latex
+\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+\begin{proof}
+\[
+z_P^* = z_D^*.
+\]
+\end{proof}
+\end{document}
+```
+""".strip()
+
+    cleaned = strip_full_latex_document(raw)
+
+    assert "```" not in cleaned
+    assert "\\documentclass" not in cleaned
+    assert "\\usepackage" not in cleaned
+    assert "\\begin{document}" not in cleaned
+    assert "\\end{document}" not in cleaned
+    assert "\\begin{proof}" not in cleaned
+    assert "\\end{proof}" not in cleaned
+    assert "\\[" not in cleaned
+    assert "\\]" not in cleaned
+    assert "**Proof.**" in cleaned
+    assert "$$" in cleaned
+    assert "z_P^* = z_D^*" in cleaned

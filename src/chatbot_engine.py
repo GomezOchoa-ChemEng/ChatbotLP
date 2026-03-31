@@ -29,6 +29,7 @@ from .formal_context_builder import (
     identify_formal_math_request,
 )
 from .math_response_generator import generate_math_response
+from .math_response_generator import MathResponseGenerator
 from .proof_validator import validate_formal_math_context
 from .domain.sampat2019 import get_theorem_metadata
 
@@ -245,6 +246,7 @@ def run_chatbot_session(
             )
             result["response"] = generate_math_response(formal_context, use_llm=use_llm)
             result["formal_math_context"] = formal_context
+            result["render_mode"] = MathResponseGenerator.infer_render_mode(formal_context)
             request_type = identify_formal_math_request(user_message)["request_type"]
             fatal_issues = validate_formal_math_context(formal_context)
             theorem_supported = (

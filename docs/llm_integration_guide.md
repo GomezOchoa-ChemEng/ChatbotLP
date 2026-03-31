@@ -122,6 +122,38 @@ result = run_chatbot_session(
 )
 ```
 
+Notebook Rendering Of Formal Math
+---------------------------------
+
+Formal math responses are returned as render-ready fragments for Colab/Jupyter, not standalone LaTeX documents. That means:
+
+- no `\documentclass`
+- no `\usepackage`
+- no `\begin{document}` / `\end{document}`
+- theorem/proof outputs use notebook-friendly headings, prose, and display math
+
+For theorem, proof, and dual responses, the safest display path is:
+
+```python
+from IPython.display import Markdown, display
+
+display(Markdown(result["response"]))
+```
+
+The formal math route may also attach a small hint:
+
+```python
+result["render_mode"]  # e.g. "markdown_latex"
+```
+
+Optional helper:
+
+```python
+from src.notebook_rendering import render_chatbot_result
+
+render_chatbot_result(result)
+```
+
 Deterministic Components Still In Charge
 ----------------------------------------
 

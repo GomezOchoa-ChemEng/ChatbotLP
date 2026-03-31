@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional
 
 from .domain.sampat2019 import SECTION23_CONCEPTS, get_theorem_metadata
@@ -17,6 +18,14 @@ class MathResponseGenerator:
 
     def __init__(self, use_llm: bool = False):
         self.use_llm = use_llm
+
+    @staticmethod
+    def infer_render_mode(context: FormalMathContext) -> str:
+        """Return the preferred notebook rendering mode for a formal-math response."""
+
+        if context.request_type in {"dual", "theorem_proof"}:
+            return "markdown_latex"
+        return "markdown"
 
     def generate_dual_latex(self, context: FormalMathContext) -> str:
         return self._generate("dual", context)
@@ -40,11 +49,14 @@ class MathResponseGenerator:
 
         llm_response = self._generate_with_llm(response_kind, context)
         if llm_response:
+            llm_response = strip_full_latex_document(llm_response)
             output_issues = validate_generated_math_response(context, llm_response)
             if not output_issues:
                 return llm_response
 
-        deterministic_response = self._generate_without_llm(response_kind, context)
+        deterministic_response = strip_full_latex_document(
+            self._generate_without_llm(response_kind, context)
+        )
         output_issues = validate_generated_math_response(context, deterministic_response)
         if output_issues:
             deterministic_response += "\n\nValidation notes:\n- " + "\n- ".join(output_issues)
@@ -71,11 +83,13 @@ class MathResponseGenerator:
                     "do not invent symbols",
                     "do not claim results not grounded in context",
                     "if assumptions are missing, say so clearly",
-                    "prefer theorem/proof structure for proof requests",
+                    "return a render-ready LaTeX fragment, not a standalone LaTeX document",
+                    "do not include documentclass, usepackage, begin{document}, or end{document}",
+                    "prefer notebook-friendly markdown plus LaTeX fragments for proof requests",
                     "prefer align-ready LaTeX for formulations",
                     "style should be concise operations research exposition",
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
-                    "for theorem_1, prefer a polished theorem statement followed by a proof environment",
+                    "for theorem_1, prefer a polished theorem statement followed by a clear Proof. label rather than theorem or proof environments",
                     "if the request is out of scope, say so plainly and do not improvise",
                     "do not expose internal metadata labels such as validated_linear_problem_state, assumptions_verified, ProblemState, or raw field names",
                 ],
@@ -190,14 +204,16 @@ class MathResponseGenerator:
 
         return "\n".join(
             [
-                "\\[",
+                "**Dual Problem.**",
+                "",
+                "$$",
                 "\\begin{aligned}",
                 "\\min \\quad & " + objective + " \\\\",
                 "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]) + " \\\\",
                 "\\text{sign restrictions} \\quad & "
                 + " \\\n& ".join(balance_lines + capacity_lines or ["\\text{none}"]),
                 "\\end{aligned}",
-                "\\]",
+                "$$",
                 "",
                 notes,
             ]
@@ -225,15 +241,11 @@ class MathResponseGenerator:
         proof_style = theorem_metadata.get("proof_style", "proof")
 
         lines = [
-            "\\[",
-            "\\begin{aligned}",
-            f"\\textbf{{Theorem {theorem_number}.}}\\;& {statement}",
-            "\\end{aligned}",
-            "\\]",
+            f"**Theorem {theorem_number}.** {statement}",
             "",
-            f"\\textit{{{proof_style}, grounded in the verified structured context.}}",
+            f"*{proof_style}, grounded in the verified structured context.*",
             "",
-            "\\begin{proof}",
+            "**Proof.**",
             "Form the Lagrangian by attaching a free multiplier $\\pi_{np}$ to each node-product balance equation and nonnegative multipliers "
             "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ to the supported supplier, consumer, and transport upper bounds.",
             "Collecting coefficients of $q_b$, $f_{ij}$, and $x_k$ yields the dual inequalities associated with accepted bids, transport flows, and transformation activities; "
@@ -241,14 +253,18 @@ class MathResponseGenerator:
             "Thus the dual in the variables $\\pi_{np}$, $\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ is exactly the linear-programming dual of $(P)$, with "
             "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ nonnegative and $\\pi_{np}$ free because the node-product balances are equalities.",
             "Since $(P)$ is feasible and has a finite optimal value, the strong duality theorem of linear programming implies that $(D)$ is feasible, attains an optimum, "
-            "and satisfies $z_P^* = z_D^*$.",
+            "and satisfies",
+            "",
+            "$$",
+            "z_P^* = z_D^*.",
+            "$$",
+            "",
             "Complementary slackness then yields the usual economic interpretation: whenever a bid, flow, or technology activity is positive, the corresponding reduced-cost relation binds, "
             "so the multipliers $\\pi_{np}$ act as node-product prices supporting the optimal clearing allocation.",
             "Therefore the coordinated clearing problem and its associated dual price system satisfy strong duality, proving Theorem "
             + theorem_number
             + ".",
         ]
-        lines.append("\\end{proof}")
         return "\n".join(lines)
 
     def _deterministic_theorem_explanation(self, context: FormalMathContext) -> str:
@@ -314,3 +330,24 @@ def generate_math_response(
 
     generator = MathResponseGenerator(use_llm=use_llm)
     return generator.generate(context)
+
+
+def strip_full_latex_document(text: str) -> str:
+    """Normalize generated math into a notebook-friendly Markdown + LaTeX fragment."""
+
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:latex|tex|markdown)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = re.sub(r"\\documentclass(?:\[[^\]]*\])?\{[^}]*\}", "", cleaned)
+    cleaned = re.sub(r"\\usepackage(?:\[[^\]]*\])?\{[^}]*\}", "", cleaned)
+    cleaned = re.sub(r"\\begin\{document\}", "", cleaned)
+    cleaned = re.sub(r"\\end\{document\}", "", cleaned)
+    cleaned = re.sub(r"\\begin\{proof\}", "**Proof.**", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\end\{proof\}", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\begin\{theorem\*?\}", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\end\{theorem\*?\}", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\\[(.*?)\\\]", r"$$\n\1\n$$", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\$\$\s*", "$$\n", cleaned)
+    cleaned = re.sub(r"\s*\$\$", "\n$$", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
