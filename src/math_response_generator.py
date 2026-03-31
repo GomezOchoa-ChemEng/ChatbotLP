@@ -238,9 +238,13 @@ class MathResponseGenerator:
             "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ to the supported supplier, consumer, and transport upper bounds.",
             "Collecting coefficients of $q_b$, $f_{ij}$, and $x_k$ yields the dual inequalities associated with accepted bids, transport flows, and transformation activities; "
             "the right-hand-side terms yield the dual objective.",
-            "Hence any optimal primal-dual pair satisfies stationarity and complementary slackness. In particular, whenever an activity is accepted at positive level, "
-            "its reduced-cost relation binds, so the multipliers $\\pi_{np}$ support the allocation as node-product prices.",
-            "Therefore the optimal clearing allocation and the associated price system are jointly characterized by the primal-dual pair, proving Theorem "
+            "Thus the dual in the variables $\\pi_{np}$, $\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ is exactly the linear-programming dual of $(P)$, with "
+            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ nonnegative and $\\pi_{np}$ free because the node-product balances are equalities.",
+            "Since $(P)$ is feasible and has a finite optimal value, the strong duality theorem of linear programming implies that $(D)$ is feasible, attains an optimum, "
+            "and satisfies $z_P^* = z_D^*$.",
+            "Complementary slackness then yields the usual economic interpretation: whenever a bid, flow, or technology activity is positive, the corresponding reduced-cost relation binds, "
+            "so the multipliers $\\pi_{np}$ act as node-product prices supporting the optimal clearing allocation.",
+            "Therefore the coordinated clearing problem and its associated dual price system satisfy strong duality, proving Theorem "
             + theorem_number
             + ".",
         ]

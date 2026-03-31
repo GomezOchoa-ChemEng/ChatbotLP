@@ -30,6 +30,7 @@ def test_chatbot_routes_theorem_request():
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert "Theorem" in result["response"]
+    assert "strong duality" in result["response"]
     assert "validated_linear_problem_state" not in result["response"]
     assert "assumptions_verified" not in result["response"]
     assert "ProblemState" not in result["response"]

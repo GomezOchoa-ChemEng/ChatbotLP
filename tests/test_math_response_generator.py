@@ -50,6 +50,8 @@ def test_theorem_proof_generation_has_proof_environment():
     assert "\\end{proof}" in response
     assert "Lagrangian" in response
     assert "node-product prices" in response
+    assert "strong duality" in response
+    assert "$z_P^* = z_D^*$" in response
     assert "validated_linear_problem_state" not in response
     assert "assumptions_verified" not in response
     assert "ProblemState" not in response
