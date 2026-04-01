@@ -96,7 +96,8 @@ class MathResponseGenerator:
                     "style should be concise operations research exposition",
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
                     "for dual-only requests, include the exact sentence 'The dual problem is formulated as follows:' exactly once",
-                    "for dual-only requests, place the dual formulation in exactly two renderable display-math blocks: one aligned block for the objective and inequalities, then one separate block for sign restrictions",
+                    "for dual-only requests, place the dual formulation in exactly two wrapped display-math blocks: the first must be a single aligned block with (D), the objective, and s.t. with one inequality per line; the second must contain only sign restrictions",
+                    "for dual-only requests, do not include inline labels, constraint names, validation notes, or any prose before, between, or after the two display blocks beyond that exact sentence",
                     "for theorem_1, treat the result as a curated strong-duality theorem, not a primal-optimum existence claim",
                     "for theorem_1, explicitly include both the primal problem and the dual problem in clean display blocks",
                     "for theorem_1, explicitly conclude strong duality and the equality z_P^* = z_D^*",
@@ -192,10 +193,7 @@ class MathResponseGenerator:
         dual = context.dual_formulation or {}
         objective_terms = dual.get("objective_terms", [])
         stationarity_conditions = dual.get("stationarity_conditions", [])
-        objective = " + ".join(
-            f"{self._format_scalar(float(term['coefficient']))} {term['symbol']}"
-            for term in objective_terms
-        ) or "0"
+        objective = self._format_objective_expression(objective_terms)
 
         stationarity_lines = []
         for condition in stationarity_conditions:
@@ -213,6 +211,7 @@ class MathResponseGenerator:
             for dual_var in context.dual_variables
             if dual_var.get("constraint_type") == "upper_bound"
         ]
+        sign_lines = balance_lines + capacity_lines or ["\\text{none}"]
 
         return "\n".join(
             [
@@ -225,7 +224,9 @@ class MathResponseGenerator:
                 "\\end{aligned}",
                 "$$",
                 "$$",
-                ",\\; ".join(balance_lines + capacity_lines or ["\\text{none}"]),
+                "\\begin{aligned}",
+                "& " + " \\\\\n& ".join(sign_lines),
+                "\\end{aligned}",
                 "$$",
             ]
         )

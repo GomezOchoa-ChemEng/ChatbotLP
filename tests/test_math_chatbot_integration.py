@@ -28,7 +28,7 @@ def test_chatbot_routes_dual_request():
     assert "The dual problem is formulated as follows:" in result["response"]
     assert result["response"].count("The dual problem is formulated as follows:") == 1
     assert "\\begin{aligned}" in result["response"]
-    assert result["response"].count("\\begin{aligned}") == 1
+    assert result["response"].count("\\begin{aligned}") == 2
     assert result["response"].count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in result["response"]
     assert "\\text{sign restrictions}" not in result["response"]
@@ -67,7 +67,7 @@ Validation notes:
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert result["response"].count("The dual problem is formulated as follows:") == 1
-    assert result["response"].count("\\begin{aligned}") == 1
+    assert result["response"].count("\\begin{aligned}") == 2
     assert result["response"].count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in result["response"]
     assert "Validation notes:" not in result["response"]

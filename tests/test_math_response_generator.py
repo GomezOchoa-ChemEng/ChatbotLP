@@ -34,7 +34,7 @@ def test_dual_generation_without_llm():
     assert "$$" in response
     assert response.count("$$") == 4
     assert "\\begin{aligned}" in response
-    assert response.count("\\begin{aligned}") == 1
+    assert response.count("\\begin{aligned}") == 2
     assert "(D)\\qquad \\min \\quad" in response
     assert "\\pi_{n1,p1}" in response
     assert "\\text{s.t.}" in response
@@ -169,7 +169,7 @@ $$
         response = generate_math_response(context, use_llm=True)
 
     assert response.count("The dual problem is formulated as follows:") == 1
-    assert response.count("\\begin{aligned}") == 1
+    assert response.count("\\begin{aligned}") == 2
     assert response.count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in response
     assert "Validation notes:" not in response
@@ -180,6 +180,7 @@ $$
     assert "balance_" not in response
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
+    assert response.rstrip().endswith("$$")
 
 
 def test_strip_full_latex_document_normalizes_notebook_fragment_artifacts():

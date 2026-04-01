@@ -9,6 +9,35 @@ from .domain.sampat2019 import get_theorem_metadata
 from .schema import FormalMathContext
 
 
+def _extract_wrapped_display_blocks(response_text: str) -> List[str]:
+    return re.findall(r"\$\$\s*(.*?)\s*\$\$", response_text, flags=re.DOTALL)
+
+
+def _strip_display_blocks(response_text: str) -> str:
+    return re.sub(r"\$\$.*?\$\$", "", response_text, flags=re.DOTALL).strip()
+
+
+def _extract_aligned_rows(block_text: str) -> List[str]:
+    content = re.sub(r"\\begin\{aligned\}", "", block_text)
+    content = re.sub(r"\\end\{aligned\}", "", content)
+    return [row.strip() for row in re.split(r"\\\\", content) if row.strip()]
+
+
+def _contains_relation(text: str) -> bool:
+    relation_tokens = ("\\ge", "\\le", "\\geq", "\\leq", "=")
+    return any(token in text for token in relation_tokens)
+
+
+def _is_sign_restriction_row(row: str) -> bool:
+    compact = row.replace("&", "").strip()
+    if not compact:
+        return False
+    if any(token in compact for token in ("(D)", "\\min", "\\max", "\\text{s.t.}")):
+        return False
+    sign_tokens = ("\\in \\mathbb{R}", "\\ge 0", "\\le 0", "\\geq 0", "\\leq 0")
+    return any(token in compact for token in sign_tokens)
+
+
 def validate_formal_math_context(context: FormalMathContext) -> List[str]:
     """Return validation issues for a formal math context."""
 
@@ -72,23 +101,51 @@ def validate_generated_math_response(
 
     if context.request_type == "dual":
         explanatory_sentence = "The dual problem is formulated as follows:"
+        display_blocks = _extract_wrapped_display_blocks(response_text)
+        surrounding_text = _strip_display_blocks(response_text)
+        raw_align_leakage = re.search(r"\\begin\{align\*?\}", response_text) is not None
+
         for dual_variable in context.dual_variables:
             if dual_variable["symbol"] not in response_text:
                 issues.append(
                     f"Dual response omitted expected dual symbol {dual_variable['symbol']}"
                 )
-        if "\\min" not in response_text or "\\text{s.t.}" not in response_text:
-            issues.append("Dual response is missing standard optimization LaTeX structure.")
-        if "$$" not in response_text and "\\[" not in response_text:
-            issues.append("Dual response should expose a notebook-friendly display-math block.")
-        if response_text.count(explanatory_sentence) != 1:
+        if surrounding_text != explanatory_sentence:
             issues.append("Dual response must include the explanatory sentence exactly once.")
-        if response_text.count("\\begin{aligned}") != 1:
-            issues.append("Dual response must contain exactly one aligned dual block.")
-        if response_text.count("$$") != 4:
+        if len(display_blocks) != 2 or response_text.count("$$") != 4:
             issues.append("Dual response must contain exactly two wrapped display-math blocks.")
-        if "\\begin{align" in response_text:
+        if raw_align_leakage:
             issues.append("Dual response contains raw align-environment leakage.")
+        if len(display_blocks) == 2:
+            first_block, second_block = display_blocks
+            first_rows = _extract_aligned_rows(first_block)
+            second_rows = _extract_aligned_rows(second_block)
+
+            if first_block.count("\\begin{aligned}") != 1 or first_block.count("\\end{aligned}") != 1:
+                issues.append("Dual response first block must be a single aligned block.")
+            if "(D)" not in first_block or "\\min" not in first_block or "\\text{s.t.}" not in first_block:
+                issues.append("Dual response first block must contain the dual label, objective, and s.t.")
+            if "sign restrictions" in first_block.lower():
+                issues.append("Dual response first block must contain only the objective and inequalities.")
+            if not first_rows or "(D)" not in first_rows[0] or "\\min" not in first_rows[0]:
+                issues.append("Dual response first block must begin with the dual objective.")
+            constraint_rows = [row for row in first_rows[1:] if row.replace("&", "").strip()]
+            if not constraint_rows or "\\text{s.t.}" not in constraint_rows[0]:
+                issues.append("Dual response first block must place the inequalities under s.t.")
+            if any(not _contains_relation(row) for row in constraint_rows):
+                issues.append("Dual response first block must contain one inequality per line.")
+            if any(
+                "\\text{" in row and "\\text{s.t.}" not in row
+                for row in first_rows
+            ):
+                issues.append("Dual response must not include inline labels inside the dual blocks.")
+
+            if any(token in second_block for token in ("(D)", "\\min", "\\max", "\\text{s.t.}")):
+                issues.append("Dual response second block must contain sign restrictions only.")
+            if not second_rows or any(not _is_sign_restriction_row(row) for row in second_rows):
+                issues.append("Dual response second block must contain sign restrictions only.")
+            if any("\\text{" in row for row in second_rows):
+                issues.append("Dual response must not include inline labels inside the dual blocks.")
 
     if context.request_type == "theorem_proof":
         if context.applicable is True:
