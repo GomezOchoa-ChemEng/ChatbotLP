@@ -25,14 +25,18 @@ def test_dual_generation_without_llm():
     state = make_state()
     context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
     response = generate_math_response(context, use_llm=False)
-    assert "**Dual Problem.**" in response
+    assert "The dual problem is formulated as follows:" in response
+    assert response.count("The dual problem is formulated as follows:") == 1
     assert "$$" in response
+    assert response.count("$$") == 2
     assert "\\begin{aligned}" in response
+    assert response.count("\\begin{aligned}") == 1
     assert "\\pi_{n1,p1}" in response
     assert "\\min \\quad" in response
     assert "\\text{s.t.}" in response
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
+    assert "\\begin{align*}" not in response
     assert "\\documentclass" not in response
     assert "\\usepackage" not in response
     assert "\\begin{document}" not in response

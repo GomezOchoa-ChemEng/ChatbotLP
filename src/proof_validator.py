@@ -71,6 +71,7 @@ def validate_generated_math_response(
             break
 
     if context.request_type == "dual":
+        explanatory_sentence = "The dual problem is formulated as follows:"
         for dual_variable in context.dual_variables:
             if dual_variable["symbol"] not in response_text:
                 issues.append(
@@ -80,6 +81,14 @@ def validate_generated_math_response(
             issues.append("Dual response is missing standard optimization LaTeX structure.")
         if "$$" not in response_text and "\\[" not in response_text:
             issues.append("Dual response should expose a notebook-friendly display-math block.")
+        if response_text.count(explanatory_sentence) != 1:
+            issues.append("Dual response must include the explanatory sentence exactly once.")
+        if response_text.count("\\begin{aligned}") != 1:
+            issues.append("Dual response must contain exactly one aligned dual block.")
+        if response_text.count("$$") != 2:
+            issues.append("Dual response must contain exactly one wrapped display-math block.")
+        if "\\begin{align" in response_text:
+            issues.append("Dual response contains raw align-environment leakage.")
 
     if context.request_type == "theorem_proof":
         if context.applicable is True:

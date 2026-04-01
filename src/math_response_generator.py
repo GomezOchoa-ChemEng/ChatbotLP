@@ -95,6 +95,8 @@ class MathResponseGenerator:
                     "minimize prose; prefer equations",
                     "style should be concise operations research exposition",
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
+                    "for dual-only requests, include the exact sentence 'The dual problem is formulated as follows:' exactly once",
+                    "for dual-only requests, place the dual formulation in exactly one renderable display-math block and do not duplicate it",
                     "for theorem_1, treat the result as a curated strong-duality theorem, not a primal-optimum existence claim",
                     "for theorem_1, explicitly include both the primal problem and the dual problem in clean display blocks",
                     "for theorem_1, explicitly conclude strong duality and the equality z_P^* = z_D^*",
@@ -226,15 +228,9 @@ class MathResponseGenerator:
             if dual_var.get("constraint_type") == "upper_bound"
         ]
 
-        notes = (
-            "This dual is rendered from the deterministic primal scaffold currently supported in ChatbotLP. "
-            "It keeps the Sampat-style price interpretation narrow: node-product balances carry free multipliers, "
-            "and explicit capacity bounds carry nonnegative multipliers."
-        )
-
         return "\n".join(
             [
-                "**Dual Problem.**",
+                "The dual problem is formulated as follows:",
                 "",
                 "$$",
                 "\\begin{aligned}",
@@ -244,8 +240,6 @@ class MathResponseGenerator:
                 + " \\\n& ".join(balance_lines + capacity_lines or ["\\text{none}"]),
                 "\\end{aligned}",
                 "$$",
-                "",
-                notes,
             ]
         )
 

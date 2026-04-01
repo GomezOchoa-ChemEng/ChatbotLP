@@ -23,8 +23,11 @@ def test_chatbot_routes_dual_request():
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert result["render_mode"] == "markdown_latex"
-    assert "**Dual Problem.**" in result["response"]
+    assert "The dual problem is formulated as follows:" in result["response"]
+    assert result["response"].count("The dual problem is formulated as follows:") == 1
     assert "\\begin{aligned}" in result["response"]
+    assert result["response"].count("\\begin{aligned}") == 1
+    assert result["response"].count("$$") == 2
     assert "\\documentclass" not in result["response"]
 
 
