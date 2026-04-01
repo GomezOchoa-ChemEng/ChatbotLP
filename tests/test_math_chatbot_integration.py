@@ -30,6 +30,9 @@ def test_chatbot_routes_dual_request():
     assert "\\begin{aligned}" in result["response"]
     assert result["response"].count("\\begin{aligned}") == 1
     assert result["response"].count("$$") == 2
+    assert "(D)\\qquad \\min \\quad" in result["response"]
+    assert "(\\text{supplier bid})" not in result["response"]
+    assert "balance_" not in result["response"]
     assert "\\documentclass" not in result["response"]
 
 
@@ -65,8 +68,11 @@ Validation notes:
     assert result["response"].count("The dual problem is formulated as follows:") == 1
     assert result["response"].count("\\begin{aligned}") == 1
     assert result["response"].count("$$") == 2
+    assert "(D)\\qquad \\min \\quad" in result["response"]
     assert "Validation notes:" not in result["response"]
     assert "Rejected raw response" not in result["response"]
+    assert "(\\text{supplier bid})" not in result["response"]
+    assert "balance_" not in result["response"]
     assert "\\mu_{bs}" in result["response"]
     assert "\\nu_{bc}" in result["response"]
 

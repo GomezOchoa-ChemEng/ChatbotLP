@@ -188,18 +188,6 @@ class MathResponseGenerator:
     def _dual_condition_rhs(self, condition: Dict[str, object]) -> str:
         return self._objective_coefficient_text(condition)
 
-    def _dual_condition_label(self, condition: Dict[str, object]) -> str:
-        variable_class = condition.get("variable_class")
-        if variable_class == "supplier_bid":
-            return f"{condition['primal_variable']} \\; (\\text{{supplier bid}})"
-        if variable_class == "consumer_bid":
-            return f"{condition['primal_variable']} \\; (\\text{{consumer bid}})"
-        if variable_class == "transport_flow":
-            return f"{condition['primal_variable']} \\; (\\text{{transport flow}})"
-        if variable_class == "technology_activity":
-            return f"{condition['primal_variable']} \\; (\\text{{technology activity}})"
-        return str(condition["primal_variable"])
-
     def _deterministic_dual(self, context: FormalMathContext) -> str:
         dual = context.dual_formulation or {}
         objective_terms = dual.get("objective_terms", [])
@@ -213,17 +201,15 @@ class MathResponseGenerator:
         for condition in stationarity_conditions:
             lhs = self._format_linear_expression(condition.get("dual_expression_terms", []))
             rhs = self._dual_condition_rhs(condition)
-            stationarity_lines.append(
-                f"{lhs} \\ge {rhs}, && {self._dual_condition_label(condition)}"
-            )
+            stationarity_lines.append(f"{lhs} \\ge {rhs}")
 
         balance_lines = [
-            f"{dual_var['symbol']} \\in \\mathbb{{R}}, && {dual_var['constraint_name']}"
+            f"{dual_var['symbol']} \\in \\mathbb{{R}}"
             for dual_var in context.dual_variables
             if dual_var.get("constraint_type") == "balance"
         ]
         capacity_lines = [
-            f"{dual_var['symbol']} \\ge 0, && {dual_var['constraint_name']}"
+            f"{dual_var['symbol']} \\ge 0"
             for dual_var in context.dual_variables
             if dual_var.get("constraint_type") == "upper_bound"
         ]
@@ -234,7 +220,7 @@ class MathResponseGenerator:
                 "",
                 "$$",
                 "\\begin{aligned}",
-                "\\min \\quad & " + objective + " \\\\",
+                "(D)\\qquad \\min \\quad & " + objective + " \\\\",
                 "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]) + " \\\\",
                 "\\text{sign restrictions} \\quad & "
                 + " \\\n& ".join(balance_lines + capacity_lines or ["\\text{none}"]),
