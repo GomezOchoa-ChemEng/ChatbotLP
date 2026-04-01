@@ -89,6 +89,16 @@ def validate_generated_math_response(
                 issues.append("Proof response is missing a clear proof label.")
             if "$$" not in response_text and "\\[" not in response_text:
                 issues.append("Proof response should expose at least one notebook-friendly display-math block.")
+            if context.theorem_id == "theorem_1":
+                compact = re.sub(r"\s+", "", response_text)
+                if "strong duality" not in lowered:
+                    issues.append("Theorem 1 response must explicitly state strong duality.")
+                if "z_P^*=z_D^*" not in compact:
+                    issues.append("Theorem 1 response must explicitly include z_P^* = z_D^*.")
+                if "**primal problem.**" not in lowered or "**dual problem.**" not in lowered:
+                    issues.append("Theorem 1 response must include clean primal and dual problem headings.")
+                if "primal has an optimal solution" in lowered or "primal optimum exists" in lowered:
+                    issues.append("Theorem 1 response drifted to primal-optimum existence instead of strong duality.")
         else:
             lowered = response_text.lower()
             if "cannot certify" not in lowered and "out of scope" not in lowered:

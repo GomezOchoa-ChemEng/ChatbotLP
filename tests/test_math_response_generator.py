@@ -52,12 +52,18 @@ def test_theorem_proof_generation_is_notebook_friendly_fragment():
     context = build_formal_math_context(state, "Show me that Theorem 1 holds.")
     response = generate_math_response(context, use_llm=False)
     assert "**Theorem 1.**" in response
+    assert "**Primal Problem.**" in response
+    assert "**Dual Problem.**" in response
     assert "**Proof.**" in response
     assert "$$" in response
     assert "Lagrangian" in response
     assert "node-product prices" in response
     assert "strong duality" in response
     assert "z_P^* = z_D^*" in response
+    assert "primal has an optimal solution" not in response.lower()
+    assert "primal optimum exists" not in response.lower()
+    assert "q_{B1}=0q_{B1}=0" not in response
+    assert "max⁡" not in response
     assert "\\begin{proof}" not in response
     assert "\\end{proof}" not in response
     assert "\\documentclass" not in response
@@ -135,3 +141,14 @@ z_P^* = z_D^*.
     assert "**Proof.**" in cleaned
     assert "$$" in cleaned
     assert "z_P^* = z_D^*" in cleaned
+
+
+def test_theorem_1_response_requires_primal_and_dual_semantics():
+    state = make_state()
+    context = build_formal_math_context(state, "Show me that Theorem 1 holds.")
+    response = generate_math_response(context, use_llm=False)
+
+    assert "(P)" in response
+    assert "(D)" in response
+    assert "strong duality theorem of linear programming" in response
+    assert "z_P^* = z_D^*" in response

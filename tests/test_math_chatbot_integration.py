@@ -34,8 +34,12 @@ def test_chatbot_routes_theorem_request():
     assert result["success"]
     assert "Theorem" in result["response"]
     assert result["render_mode"] == "markdown_latex"
+    assert "**Primal Problem.**" in result["response"]
+    assert "**Dual Problem.**" in result["response"]
     assert "**Proof.**" in result["response"]
     assert "strong duality" in result["response"]
+    assert "z_P^* = z_D^*" in result["response"]
+    assert "primal has an optimal solution" not in result["response"].lower()
     assert "\\begin{proof}" not in result["response"]
     assert "validated_linear_problem_state" not in result["response"]
     assert "assumptions_verified" not in result["response"]
