@@ -91,14 +91,29 @@ def validate_generated_math_response(
                 issues.append("Proof response should expose at least one notebook-friendly display-math block.")
             if context.theorem_id == "theorem_1":
                 compact = re.sub(r"\s+", "", response_text)
+                aligned_count = response_text.count("\\begin{aligned}")
+                forbidden_phrases = [
+                    "max coordinated surplus over",
+                    "dual objective induced by",
+                    "coordinated surplus over",
+                    "supported structured context",
+                ]
                 if "strong duality" not in lowered:
                     issues.append("Theorem 1 response must explicitly state strong duality.")
                 if "z_P^*=z_D^*" not in compact:
                     issues.append("Theorem 1 response must explicitly include z_P^* = z_D^*.")
                 if "**primal problem.**" not in lowered or "**dual problem.**" not in lowered:
                     issues.append("Theorem 1 response must include clean primal and dual problem headings.")
+                if "\\mathcal{L}" not in response_text and "lagrangian" not in lowered:
+                    issues.append("Theorem 1 response must explicitly define the Lagrangian.")
+                if aligned_count < 3:
+                    issues.append("Theorem 1 response must be equation-driven and include aligned primal, dual, and derivation blocks.")
                 if "primal has an optimal solution" in lowered or "primal optimum exists" in lowered:
                     issues.append("Theorem 1 response drifted to primal-optimum existence instead of strong duality.")
+                if any(phrase in lowered for phrase in forbidden_phrases):
+                    issues.append("Theorem 1 response contains placeholder phrasing instead of explicit mathematical programming content.")
+                if re.search(r"(q_b\s+q_b\s+q_b)|(\(p\)\(p\))", lowered):
+                    issues.append("Theorem 1 response contains duplicated mathematical fragments.")
         else:
             lowered = response_text.lower()
             if "cannot certify" not in lowered and "out of scope" not in lowered:

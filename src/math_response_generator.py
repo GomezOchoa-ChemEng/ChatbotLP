@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
+from .dual_generator import build_dual_scaffold
 from .domain.sampat2019 import SECTION23_CONCEPTS, get_theorem_metadata
 from .proof_validator import (
     validate_formal_math_context,
@@ -80,6 +81,8 @@ class MathResponseGenerator:
                 "formal_math_request": response_kind,
                 "prompt_constraints": [
                     "use only supplied notation",
+                    "you are writing a mathematical programming proof, not an explanation",
+                    "write in the style of a textbook or research note",
                     "do not invent symbols",
                     "do not claim results not grounded in context",
                     "if assumptions are missing, say so clearly",
@@ -87,6 +90,9 @@ class MathResponseGenerator:
                     "do not include documentclass, usepackage, begin{document}, or end{document}",
                     "prefer notebook-friendly markdown plus LaTeX fragments for proof requests",
                     "prefer align-ready LaTeX for formulations",
+                    "use display equations wherever possible",
+                    "avoid descriptive placeholders; use explicit algebraic expressions",
+                    "minimize prose; prefer equations",
                     "style should be concise operations research exposition",
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
                     "for theorem_1, treat the result as a curated strong-duality theorem, not a primal-optimum existence claim",
@@ -149,6 +155,25 @@ class MathResponseGenerator:
     def _objective_coefficient_text(self, condition: Dict[str, object]) -> str:
         coefficient = float(condition.get("objective_coefficient", 0.0))
         return self._format_scalar(coefficient)
+
+    def _format_objective_expression(self, terms: List[Dict[str, object]]) -> str:
+        expression_terms = [
+            {
+                "coefficient": float(term["coefficient"]),
+                "symbol": str(term["symbol"]),
+            }
+            for term in terms
+        ]
+        return self._format_linear_expression(expression_terms)
+
+    def _constraint_relation(self, sense: str) -> str:
+        return {"=": "=", "<=": "\\le", ">=": "\\ge"}.get(sense, sense)
+
+    def _format_constraint_line(self, constraint: Dict[str, object]) -> str:
+        lhs = self._format_linear_expression(constraint.get("lhs_terms", []))
+        rhs = self._format_scalar(float(constraint.get("rhs", 0.0)))
+        relation = self._constraint_relation(str(constraint.get("sense", "=")))
+        return f"{lhs} {relation} {rhs}"
 
     def _missing_assumption_text(self, context: FormalMathContext) -> List[str]:
         theorem_metadata = get_theorem_metadata(context.theorem_id or "") or {}
@@ -224,6 +249,106 @@ class MathResponseGenerator:
             ]
         )
 
+    def _theorem_1_primal_block(self, context: FormalMathContext) -> List[str]:
+        primal = context.primal_formulation or {}
+        objective = self._format_objective_expression(primal.get("objective", {}).get("terms", []))
+        constraints = primal.get("constraints", [])
+        balance_lines = [
+            self._format_constraint_line(constraint)
+            for constraint in constraints
+            if constraint.get("type") == "balance"
+        ]
+        upper_bound_lines = [
+            self._format_constraint_line(constraint)
+            for constraint in constraints
+            if constraint.get("type") == "upper_bound"
+        ]
+        return [
+            "**Primal Problem.**",
+            "$$",
+            "\\begin{aligned}",
+            "(P)\\qquad \\max \\quad & " + objective + " \\\\",
+            "\\text{s.t.} \\quad & " + " \\\n& ".join(balance_lines or ["0 = 0"]) + " \\\\",
+            "& " + " \\\n& ".join(upper_bound_lines or ["0 \\le 0"]) + " \\\\",
+            "& q_b,\\ f_{ij},\\ x_k \\ge 0.",
+            "\\end{aligned}",
+            "$$",
+        ]
+
+    def _theorem_1_dual_block(self, dual: Dict[str, object], context: FormalMathContext) -> List[str]:
+        objective = self._format_objective_expression(dual.get("objective_terms", []))
+        stationarity_conditions = dual.get("stationarity_conditions", [])
+        stationarity_lines = [
+            (
+                f"{self._format_linear_expression(condition.get('dual_expression_terms', []))} "
+                f"\\ge {self._dual_condition_rhs(condition)}"
+            )
+            for condition in stationarity_conditions
+        ]
+        balance_lines = [
+            f"{dual_var['symbol']} \\in \\mathbb{{R}}"
+            for dual_var in context.dual_variables
+            if dual_var.get("constraint_type") == "balance"
+        ]
+        capacity_lines = [
+            f"{dual_var['symbol']} \\ge 0"
+            for dual_var in context.dual_variables
+            if dual_var.get("constraint_type") == "upper_bound"
+        ]
+        sign_lines = balance_lines + capacity_lines
+        return [
+            "**Dual Problem.**",
+            "$$",
+            "\\begin{aligned}",
+            "(D)\\qquad \\min \\quad & " + objective + " \\\\",
+            "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]) + " \\\\",
+            "& " + " \\\n& ".join(sign_lines or ["0 \\in \\mathbb{R}"]),
+            "\\end{aligned}",
+            "$$",
+        ]
+
+    def _theorem_1_lagrangian_block(self, context: FormalMathContext) -> List[str]:
+        primal = context.primal_formulation or {}
+        objective = self._format_objective_expression(primal.get("objective", {}).get("terms", []))
+        balance_terms = [
+            f"{constraint['dual_symbol']}\\left({self._format_linear_expression(constraint.get('lhs_terms', []))}\\right)"
+            for constraint in context.constraints
+            if constraint.get("type") == "balance"
+        ]
+        upper_bound_terms = [
+            f"{constraint['dual_symbol']}\\left({self._format_scalar(float(constraint.get('rhs', 0.0)))} - "
+            f"{self._format_linear_expression(constraint.get('lhs_terms', []))}\\right)"
+            for constraint in context.constraints
+            if constraint.get("type") == "upper_bound"
+        ]
+        lagrangian_terms = [objective] + balance_terms + upper_bound_terms
+        lagrangian_expression = " + ".join(term for term in lagrangian_terms if term) or "0"
+        return [
+            "$$",
+            "\\begin{aligned}",
+            "\\mathcal{L}(q,f,x;\\pi,\\mu,\\nu,\\tau)",
+            "&= " + lagrangian_expression,
+            "\\end{aligned}",
+            "$$",
+        ]
+
+    def _theorem_1_stationarity_block(self, dual: Dict[str, object]) -> List[str]:
+        stationarity_lines = []
+        for condition in dual.get("stationarity_conditions", []):
+            lhs = self._format_linear_expression(condition.get("dual_expression_terms", []))
+            rhs = self._dual_condition_rhs(condition)
+            stationarity_lines.append(
+                f"{lhs} \\ge {rhs}, \\qquad {condition['primal_variable']}"
+            )
+        return [
+            "$$",
+            "\\begin{aligned}",
+            "\\text{Coefficient collection yields} \\qquad & "
+            + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]),
+            "\\end{aligned}",
+            "$$",
+        ]
+
     def _deterministic_theorem_proof(self, context: FormalMathContext) -> str:
         theorem_metadata = get_theorem_metadata(context.theorem_id or "")
         if theorem_metadata is None:
@@ -244,52 +369,38 @@ class MathResponseGenerator:
         theorem_number = context.theorem_id.split("_")[-1] if context.theorem_id else ""
         statement = theorem_metadata.get("statement_template", "Supported theorem statement.")
         proof_style = theorem_metadata.get("proof_style", "proof")
+        dual = context.dual_formulation or build_dual_scaffold(context.primal_formulation or {})
+        context.dual_variables = dual.get("dual_variables", context.dual_variables)
 
         lines = [
-            f"**Theorem {theorem_number}.** {statement}",
+            f"**Theorem {theorem_number} (Strong Duality).** {statement}",
             "",
             f"*{proof_style}, grounded in the verified structured context.*",
             "",
-            "**Primal Problem.**",
-            "$$",
-            "\\begin{aligned}",
-            "(P)\\qquad \\max \\quad & \\text{coordinated surplus over } q_b,\\ f_{ij},\\ x_k \\\\",
-            "\\text{s.t.} \\quad & \\text{node-product balance equations}, \\\\",
-            "& 0 \\le q_b \\le \\overline{q}_b, \\\\",
-            "& 0 \\le f_{ij} \\le \\overline{f}_{ij}, \\\\",
-            "& x_k \\ge 0 \\text{ with stated yield coefficients when technologies are present.}",
-            "\\end{aligned}",
-            "$$",
-            "",
-            "**Dual Problem.**",
-            "$$",
-            "\\begin{aligned}",
-            "(D)\\qquad \\min \\quad & \\text{the dual objective induced by the balance and capacity constraints} \\\\",
-            "\\text{s.t.} \\quad & \\text{the stationarity inequalities for } q_b,\\ f_{ij},\\ x_k, \\\\",
-            "& \\pi_{np} \\in \\mathbb{R},\\ \\mu_b \\ge 0,\\ \\nu_b \\ge 0,\\ \\tau_{ij} \\ge 0.",
-            "\\end{aligned}",
-            "$$",
-            "",
-            "**Proof.**",
-            "Form the Lagrangian by attaching a free multiplier $\\pi_{np}$ to each node-product balance equation and nonnegative multipliers "
-            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ to the supported supplier, consumer, and transport upper bounds.",
-            "Collecting coefficients of $q_b$, $f_{ij}$, and $x_k$ yields the dual inequalities associated with accepted bids, transport flows, and transformation activities; "
-            "the right-hand-side terms yield the dual objective.",
-            "Thus the dual in the variables $\\pi_{np}$, $\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ is exactly the linear-programming dual of $(P)$, with "
-            "$\\mu_b$, $\\nu_b$, and $\\tau_{ij}$ nonnegative and $\\pi_{np}$ free because the node-product balances are equalities.",
-            "Since $(P)$ is feasible and has a finite optimal value, the strong duality theorem of linear programming implies that $(D)$ is feasible, attains an optimum, "
-            "and satisfies",
-            "",
-            "$$",
-            "z_P^* = z_D^*.",
-            "$$",
-            "",
-            "Complementary slackness then yields the usual economic interpretation: whenever a bid, flow, or technology activity is positive, the corresponding reduced-cost relation binds, "
-            "so the multipliers $\\pi_{np}$ act as node-product prices supporting the optimal clearing allocation.",
-            "Therefore the coordinated clearing problem and its associated dual price system satisfy strong duality, proving Theorem "
-            + theorem_number
-            + ".",
         ]
+        lines.extend(self._theorem_1_primal_block(context))
+        lines.append("")
+        lines.extend(self._theorem_1_dual_block(dual, context))
+        lines.extend(
+            [
+                "",
+                "**Proof.**",
+                "Define the Lagrangian:",
+            ]
+        )
+        lines.extend(self._theorem_1_lagrangian_block(context))
+        lines.extend(self._theorem_1_stationarity_block(dual))
+        lines.extend(
+            [
+            "",
+                "The displayed inequalities are exactly the dual feasibility conditions obtained from the Lagrangian coefficients.",
+                "Because $(P)$ is feasible and has a finite optimal value, the strong duality theorem of linear programming applies.",
+                "$$",
+                "z_P^* = z_D^*.",
+                "$$",
+                "Complementary slackness implies that the active reduced-cost relations are supported by the node-product prices $\\pi_{np}$.",
+            ]
+        )
         return "\n".join(lines)
 
     def _deterministic_theorem_explanation(self, context: FormalMathContext) -> str:

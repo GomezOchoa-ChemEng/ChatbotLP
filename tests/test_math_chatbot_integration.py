@@ -32,13 +32,17 @@ def test_chatbot_routes_theorem_request():
     result = run_chatbot_session(make_state(), "Show me that Theorem 1 holds.")
     assert result["intent"] == "formal_math"
     assert result["success"]
-    assert "Theorem" in result["response"]
+    assert "Theorem 1 (Strong Duality)" in result["response"]
     assert result["render_mode"] == "markdown_latex"
     assert "**Primal Problem.**" in result["response"]
     assert "**Dual Problem.**" in result["response"]
     assert "**Proof.**" in result["response"]
+    assert result["response"].count("\\begin{aligned}") >= 3
+    assert "\\mathcal{L}" in result["response"]
     assert "strong duality" in result["response"]
     assert "z_P^* = z_D^*" in result["response"]
+    assert "dual objective induced by" not in result["response"].lower()
+    assert "coordinated surplus over" not in result["response"].lower()
     assert "primal has an optimal solution" not in result["response"].lower()
     assert "\\begin{proof}" not in result["response"]
     assert "validated_linear_problem_state" not in result["response"]
