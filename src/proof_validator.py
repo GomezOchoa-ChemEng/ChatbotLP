@@ -97,6 +97,8 @@ def validate_generated_math_response(
                     "dual objective induced by",
                     "coordinated surplus over",
                     "supported structured context",
+                    "concise or / mathematical programming proof",
+                    "grounded in the verified structured context",
                 ]
                 if "strong duality" not in lowered:
                     issues.append("Theorem 1 response must explicitly state strong duality.")
@@ -108,6 +110,8 @@ def validate_generated_math_response(
                     issues.append("Theorem 1 response must explicitly define the Lagrangian.")
                 if aligned_count < 3:
                     issues.append("Theorem 1 response must be equation-driven and include aligned primal, dual, and derivation blocks.")
+                if lowered.count("dual problem") > 1 or response_text.count("(D)\\qquad \\min") > 1:
+                    issues.append("Theorem 1 response contains duplicate dual blocks.")
                 if "primal has an optimal solution" in lowered or "primal optimum exists" in lowered:
                     issues.append("Theorem 1 response drifted to primal-optimum existence instead of strong duality.")
                 if any(phrase in lowered for phrase in forbidden_phrases):

@@ -51,10 +51,12 @@ def test_theorem_proof_generation_is_notebook_friendly_fragment():
     state = make_state()
     context = build_formal_math_context(state, "Show me that Theorem 1 holds.")
     response = generate_math_response(context, use_llm=False)
-    assert "**Theorem 1 (Strong Duality).**" in response
+    assert "**Theorem 1**" in response
     assert "**Primal Problem.**" in response
     assert "**Dual Problem.**" in response
     assert "**Proof.**" in response
+    assert response.count("**Dual Problem.**") == 1
+    assert response.count("(D)\\qquad \\min") == 1
     assert "$$" in response
     assert response.count("\\begin{aligned}") >= 3
     assert "\\mathcal{L}" in response
@@ -64,6 +66,8 @@ def test_theorem_proof_generation_is_notebook_friendly_fragment():
     assert "z_P^* = z_D^*" in response
     assert "dual objective induced by" not in response.lower()
     assert "coordinated surplus over" not in response.lower()
+    assert "concise or / mathematical programming proof" not in response.lower()
+    assert "grounded in the verified structured context" not in response.lower()
     assert "primal has an optimal solution" not in response.lower()
     assert "primal optimum exists" not in response.lower()
     assert "q_{B1}=0q_{B1}=0" not in response
@@ -154,6 +158,7 @@ def test_theorem_1_response_requires_primal_and_dual_semantics():
 
     assert "(P)" in response
     assert "(D)" in response
+    assert response.count("**Dual Problem.**") == 1
     assert "strong duality theorem of linear programming" in response
     assert "z_P^* = z_D^*" in response
     assert "\\mathcal{L}" in response

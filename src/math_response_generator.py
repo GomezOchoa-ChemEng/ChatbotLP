@@ -368,14 +368,12 @@ class MathResponseGenerator:
 
         theorem_number = context.theorem_id.split("_")[-1] if context.theorem_id else ""
         statement = theorem_metadata.get("statement_template", "Supported theorem statement.")
-        proof_style = theorem_metadata.get("proof_style", "proof")
         dual = context.dual_formulation or build_dual_scaffold(context.primal_formulation or {})
         context.dual_variables = dual.get("dual_variables", context.dual_variables)
 
         lines = [
-            f"**Theorem {theorem_number} (Strong Duality).** {statement}",
-            "",
-            f"*{proof_style}, grounded in the verified structured context.*",
+            f"**Theorem {theorem_number}**",
+            statement,
             "",
         ]
         lines.extend(self._theorem_1_primal_block(context))
