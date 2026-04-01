@@ -96,7 +96,7 @@ class MathResponseGenerator:
                     "style should be concise operations research exposition",
                     "for duals, write an optimization model with objective, constraints, and sign restrictions",
                     "for dual-only requests, include the exact sentence 'The dual problem is formulated as follows:' exactly once",
-                    "for dual-only requests, place the dual formulation in exactly one renderable display-math block and do not duplicate it",
+                    "for dual-only requests, place the dual formulation in exactly two renderable display-math blocks: one aligned block for the objective and inequalities, then one separate block for sign restrictions",
                     "for theorem_1, treat the result as a curated strong-duality theorem, not a primal-optimum existence claim",
                     "for theorem_1, explicitly include both the primal problem and the dual problem in clean display blocks",
                     "for theorem_1, explicitly conclude strong duality and the equality z_P^* = z_D^*",
@@ -221,10 +221,11 @@ class MathResponseGenerator:
                 "$$",
                 "\\begin{aligned}",
                 "(D)\\qquad \\min \\quad & " + objective + " \\\\",
-                "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]) + " \\\\",
-                "\\text{sign restrictions} \\quad & "
-                + " \\\n& ".join(balance_lines + capacity_lines or ["\\text{none}"]),
+                "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]),
                 "\\end{aligned}",
+                "$$",
+                "$$",
+                ",\\; ".join(balance_lines + capacity_lines or ["\\text{none}"]),
                 "$$",
             ]
         )

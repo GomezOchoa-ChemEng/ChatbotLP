@@ -32,15 +32,15 @@ def test_dual_generation_without_llm():
     assert "The dual problem is formulated as follows:" in response
     assert response.count("The dual problem is formulated as follows:") == 1
     assert "$$" in response
-    assert response.count("$$") == 2
+    assert response.count("$$") == 4
     assert "\\begin{aligned}" in response
     assert response.count("\\begin{aligned}") == 1
     assert "(D)\\qquad \\min \\quad" in response
     assert "\\pi_{n1,p1}" in response
     assert "\\text{s.t.}" in response
-    assert "\\text{sign restrictions}" in response
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
+    assert "\\text{sign restrictions}" not in response
     assert "(\\text{supplier bid})" not in response
     assert "(\\text{consumer bid})" not in response
     assert "(\\text{transport flow})" not in response
@@ -170,11 +170,12 @@ $$
 
     assert response.count("The dual problem is formulated as follows:") == 1
     assert response.count("\\begin{aligned}") == 1
-    assert response.count("$$") == 2
+    assert response.count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in response
     assert "Validation notes:" not in response
     assert "bad llm output" not in response
     assert "malformed duplicate" not in response
+    assert "\\text{sign restrictions}" not in response
     assert "(\\text{supplier bid})" not in response
     assert "balance_" not in response
     assert "\\mu_{bs}" in response

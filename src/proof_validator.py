@@ -85,8 +85,8 @@ def validate_generated_math_response(
             issues.append("Dual response must include the explanatory sentence exactly once.")
         if response_text.count("\\begin{aligned}") != 1:
             issues.append("Dual response must contain exactly one aligned dual block.")
-        if response_text.count("$$") != 2:
-            issues.append("Dual response must contain exactly one wrapped display-math block.")
+        if response_text.count("$$") != 4:
+            issues.append("Dual response must contain exactly two wrapped display-math blocks.")
         if "\\begin{align" in response_text:
             issues.append("Dual response contains raw align-environment leakage.")
 
