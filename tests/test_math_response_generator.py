@@ -1,11 +1,15 @@
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path.cwd()))
 
 from src.formal_context_builder import build_formal_math_context
-from src.math_response_generator import generate_math_response, strip_full_latex_document
+from src.math_response_generator import (
+    MathResponseGenerator,
+    generate_math_response,
+    strip_full_latex_document,
+)
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
 from src.llm_adapter import LLMProviderRegistry, GeminiLLMProvider
 
@@ -125,6 +129,45 @@ def test_math_response_falls_back_when_gemini_is_misconfigured():
             assert "\\documentclass" not in response
     finally:
         registry.reset()
+
+
+def test_dual_generation_discards_invalid_llm_output_and_shows_only_clean_fallback():
+    state = make_state()
+    context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
+    rejected_response = r"""
+The dual problem is formulated as follows:
+
+$$
+\begin{aligned}
+\min \quad & \pi_{n1,p1}
+\end{aligned}
+$$
+
+Validation notes:
+- bad llm output
+
+$$
+\begin{aligned}
+\min \quad & malformed duplicate
+\end{aligned}
+$$
+""".strip()
+
+    with patch.object(
+        MathResponseGenerator,
+        "_generate_with_llm",
+        return_value=rejected_response,
+    ):
+        response = generate_math_response(context, use_llm=True)
+
+    assert response.count("The dual problem is formulated as follows:") == 1
+    assert response.count("\\begin{aligned}") == 1
+    assert response.count("$$") == 2
+    assert "Validation notes:" not in response
+    assert "bad llm output" not in response
+    assert "malformed duplicate" not in response
+    assert "\\mu_{bs}" in response
+    assert "\\nu_{bc}" in response
 
 
 def test_strip_full_latex_document_normalizes_notebook_fragment_artifacts():

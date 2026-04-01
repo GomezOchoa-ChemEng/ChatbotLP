@@ -59,7 +59,7 @@ class MathResponseGenerator:
             self._generate_without_llm(response_kind, context)
         )
         output_issues = validate_generated_math_response(context, deterministic_response)
-        if output_issues:
+        if output_issues and response_kind != "dual":
             deterministic_response += "\n\nValidation notes:\n- " + "\n- ".join(output_issues)
         return deterministic_response
 

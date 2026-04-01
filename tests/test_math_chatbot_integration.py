@@ -1,9 +1,11 @@
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path.cwd()))
 
 from src.chatbot_engine import run_chatbot_session
+from src.math_response_generator import MathResponseGenerator
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
 
 
@@ -29,6 +31,44 @@ def test_chatbot_routes_dual_request():
     assert result["response"].count("\\begin{aligned}") == 1
     assert result["response"].count("$$") == 2
     assert "\\documentclass" not in result["response"]
+
+
+def test_chatbot_dual_request_hides_invalid_llm_output_and_validation_notes():
+    rejected_response = r"""
+The dual problem is formulated as follows:
+
+Rejected raw response
+
+$$
+\begin{aligned}
+\min \quad & \pi_{n1,p1}
+\end{aligned}
+$$
+
+Validation notes:
+- dual response is missing standard optimization LaTeX structure.
+""".strip()
+
+    with patch.object(
+        MathResponseGenerator,
+        "_generate_with_llm",
+        return_value=rejected_response,
+    ):
+        result = run_chatbot_session(
+            make_state(),
+            "Give me the dual problem in LaTeX.",
+            use_llm=True,
+        )
+
+    assert result["intent"] == "formal_math"
+    assert result["success"]
+    assert result["response"].count("The dual problem is formulated as follows:") == 1
+    assert result["response"].count("\\begin{aligned}") == 1
+    assert result["response"].count("$$") == 2
+    assert "Validation notes:" not in result["response"]
+    assert "Rejected raw response" not in result["response"]
+    assert "\\mu_{bs}" in result["response"]
+    assert "\\nu_{bc}" in result["response"]
 
 
 def test_chatbot_routes_theorem_request():
