@@ -263,13 +263,18 @@ class MathResponseGenerator:
             for constraint in constraints
             if constraint.get("type") == "upper_bound"
         ]
+        remaining_constraint_lines = balance_lines[1:] + upper_bound_lines
         return [
             "**Primal Problem.**",
             "$$",
             "\\begin{aligned}",
             "(P)\\qquad \\max \\quad & " + objective + " \\\\",
-            "\\text{s.t.} \\quad & " + " \\\n& ".join(balance_lines or ["0 = 0"]) + " \\\\",
-            "& " + " \\\n& ".join(upper_bound_lines or ["0 \\le 0"]) + " \\\\",
+            "\\text{s.t.} \\quad & " + (balance_lines[0] if balance_lines else "0 = 0") + " \\\\",
+            *(
+                ["& " + " \\\\\n& ".join(remaining_constraint_lines) + " \\\\"]
+                if remaining_constraint_lines
+                else []
+            ),
             "& q_b,\\ f_{ij},\\ x_k \\ge 0.",
             "\\end{aligned}",
             "$$",
@@ -296,13 +301,25 @@ class MathResponseGenerator:
             if dual_var.get("constraint_type") == "upper_bound"
         ]
         sign_lines = balance_lines + capacity_lines
+        remaining_stationarity_lines = stationarity_lines[1:]
+        remaining_sign_lines = sign_lines[1:]
         return [
             "**Dual Problem.**",
             "$$",
             "\\begin{aligned}",
             "(D)\\qquad \\min \\quad & " + objective + " \\\\",
-            "\\text{s.t.} \\quad & " + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]) + " \\\\",
-            "& " + " \\\n& ".join(sign_lines or ["0 \\in \\mathbb{R}"]),
+            "\\text{s.t.} \\quad & " + (stationarity_lines[0] if stationarity_lines else "0 \\ge 0") + " \\\\",
+            *(
+                ["& " + " \\\\\n& ".join(remaining_stationarity_lines) + " \\\\"]
+                if remaining_stationarity_lines
+                else []
+            ),
+            "\\text{sign restrictions} \\quad & " + (sign_lines[0] if sign_lines else "0 \\in \\mathbb{R}") + " \\\\",
+            *(
+                ["& " + " \\\\\n& ".join(remaining_sign_lines)]
+                if remaining_sign_lines
+                else []
+            ),
             "\\end{aligned}",
             "$$",
         ]
@@ -322,12 +339,20 @@ class MathResponseGenerator:
             if constraint.get("type") == "upper_bound"
         ]
         lagrangian_terms = [objective] + balance_terms + upper_bound_terms
-        lagrangian_expression = " + ".join(term for term in lagrangian_terms if term) or "0"
+        lagrangian_terms = [term for term in lagrangian_terms if term]
+        if not lagrangian_terms:
+            lagrangian_terms = ["0"]
+        remaining_terms = lagrangian_terms[1:]
         return [
             "$$",
             "\\begin{aligned}",
             "\\mathcal{L}(q,f,x;\\pi,\\mu,\\nu,\\tau)",
-            "&= " + lagrangian_expression,
+            "&= " + lagrangian_terms[0] + " \\\\",
+            *(
+                ["&\\quad " + " \\\\\n&\\quad ".join(f"+ {term}" for term in remaining_terms)]
+                if remaining_terms
+                else []
+            ),
             "\\end{aligned}",
             "$$",
         ]
@@ -343,8 +368,12 @@ class MathResponseGenerator:
         return [
             "$$",
             "\\begin{aligned}",
-            "\\text{Coefficient collection yields} \\qquad & "
-            + " \\\n& ".join(stationarity_lines or ["0 \\ge 0"]),
+            "\\text{Coefficient conditions:} \\qquad & " + (stationarity_lines[0] if stationarity_lines else "0 \\ge 0") + " \\\\",
+            *(
+                ["& " + " \\\\\n& ".join(stationarity_lines[1:])]
+                if stationarity_lines[1:]
+                else []
+            ),
             "\\end{aligned}",
             "$$",
         ]

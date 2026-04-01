@@ -59,6 +59,9 @@ def test_theorem_proof_generation_is_notebook_friendly_fragment():
     assert response.count("(D)\\qquad \\min") == 1
     assert "$$" in response
     assert response.count("\\begin{aligned}") >= 3
+    assert response.count("\n& ") >= 4
+    assert "\\text{sign restrictions}" in response
+    assert "\\text{Coefficient conditions:}" in response
     assert "\\mathcal{L}" in response
     assert "Lagrangian" in response
     assert "node-product prices" in response
@@ -162,3 +165,4 @@ def test_theorem_1_response_requires_primal_and_dual_semantics():
     assert "strong duality theorem of linear programming" in response
     assert "z_P^* = z_D^*" in response
     assert "\\mathcal{L}" in response
+    assert "\\text{sign restrictions}" in response
