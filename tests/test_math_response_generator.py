@@ -1,4 +1,5 @@
 import sys
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ def test_dual_generation_without_llm():
     state = make_state()
     context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
     response = generate_math_response(context, use_llm=False)
+    first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", response, flags=re.DOTALL)[0]
     assert "The dual problem is formulated as follows:" in response
     assert response.count("The dual problem is formulated as follows:") == 1
     assert "$$" in response
@@ -38,6 +40,10 @@ def test_dual_generation_without_llm():
     assert "(D)\\qquad \\min \\quad" in response
     assert "\\pi_{n1,p1}" in response
     assert "\\text{s.t.}" in response
+    assert "\\text{s.t.} \\\\" in first_block
+    assert "\\text{s.t.} \\quad &" not in first_block
+    assert first_block.count("\\ge") == 2
+    assert first_block.count("\\\\\n& ") == 2
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
     assert "\\text{sign restrictions}" not in response
@@ -167,11 +173,15 @@ $$
         return_value=rejected_response,
     ):
         response = generate_math_response(context, use_llm=True)
+    first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", response, flags=re.DOTALL)[0]
 
     assert response.count("The dual problem is formulated as follows:") == 1
     assert response.count("\\begin{aligned}") == 2
     assert response.count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in response
+    assert "\\text{s.t.} \\\\" in first_block
+    assert "\\text{s.t.} \\quad &" not in first_block
+    assert first_block.count("\\\\\n& ") == 2
     assert "Validation notes:" not in response
     assert "bad llm output" not in response
     assert "malformed duplicate" not in response

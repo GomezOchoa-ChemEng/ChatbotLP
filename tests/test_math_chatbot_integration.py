@@ -1,4 +1,5 @@
 import sys
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ def make_state() -> ProblemState:
 
 def test_chatbot_routes_dual_request():
     result = run_chatbot_session(make_state(), "Give me the dual problem in LaTeX.")
+    first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", result["response"], flags=re.DOTALL)[0]
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert result["render_mode"] == "markdown_latex"
@@ -31,6 +33,9 @@ def test_chatbot_routes_dual_request():
     assert result["response"].count("\\begin{aligned}") == 2
     assert result["response"].count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in result["response"]
+    assert "\\text{s.t.} \\\\" in first_block
+    assert "\\text{s.t.} \\quad &" not in first_block
+    assert first_block.count("\\\\\n& ") == 2
     assert "\\text{sign restrictions}" not in result["response"]
     assert "(\\text{supplier bid})" not in result["response"]
     assert "balance_" not in result["response"]
@@ -63,6 +68,7 @@ Validation notes:
             "Give me the dual problem in LaTeX.",
             use_llm=True,
         )
+    first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", result["response"], flags=re.DOTALL)[0]
 
     assert result["intent"] == "formal_math"
     assert result["success"]
@@ -70,6 +76,9 @@ Validation notes:
     assert result["response"].count("\\begin{aligned}") == 2
     assert result["response"].count("$$") == 4
     assert "(D)\\qquad \\min \\quad" in result["response"]
+    assert "\\text{s.t.} \\\\" in first_block
+    assert "\\text{s.t.} \\quad &" not in first_block
+    assert first_block.count("\\\\\n& ") == 2
     assert "Validation notes:" not in result["response"]
     assert "Rejected raw response" not in result["response"]
     assert "\\text{sign restrictions}" not in result["response"]

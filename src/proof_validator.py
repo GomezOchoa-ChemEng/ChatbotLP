@@ -28,6 +28,11 @@ def _contains_relation(text: str) -> bool:
     return any(token in text for token in relation_tokens)
 
 
+def _relation_count(text: str) -> int:
+    relation_tokens = ("\\ge", "\\le", "\\geq", "\\leq", "=")
+    return sum(text.count(token) for token in relation_tokens)
+
+
 def _is_sign_restriction_row(row: str) -> bool:
     compact = row.replace("&", "").strip()
     if not compact:
@@ -129,11 +134,15 @@ def validate_generated_math_response(
                 issues.append("Dual response first block must contain only the objective and inequalities.")
             if not first_rows or "(D)" not in first_rows[0] or "\\min" not in first_rows[0]:
                 issues.append("Dual response first block must begin with the dual objective.")
-            constraint_rows = [row for row in first_rows[1:] if row.replace("&", "").strip()]
-            if not constraint_rows or "\\text{s.t.}" not in constraint_rows[0]:
+            if len(first_rows) < 3 or first_rows[1].replace("&", "").strip() != "\\text{s.t.}":
+                issues.append("Dual response first block must place s.t. on its own line.")
+            inequality_rows = [row for row in first_rows[2:] if row.replace("&", "").strip()]
+            if not inequality_rows:
                 issues.append("Dual response first block must place the inequalities under s.t.")
-            if any(not _contains_relation(row) for row in constraint_rows):
+            if any(not _contains_relation(row) for row in inequality_rows):
                 issues.append("Dual response first block must contain one inequality per line.")
+            if any(_relation_count(row) != 1 for row in inequality_rows):
+                issues.append("Dual response first block must not horizontally pack multiple inequalities.")
             if any(
                 "\\text{" in row and "\\text{s.t.}" not in row
                 for row in first_rows

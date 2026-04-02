@@ -107,6 +107,30 @@ $$
     assert "Dual response second block must contain sign restrictions only." in issues
 
 
+def test_validate_generated_math_response_rejects_packed_dual_inequalities():
+    context = build_formal_math_context(make_state(), "Give me the dual problem in LaTeX.")
+    response = r"""
+The dual problem is formulated as follows:
+
+$$
+\begin{aligned}
+(D)\qquad \min \quad & 6 \pi_{n1,p1} + 6 \mu_{bs} + 6 \nu_{bc} \\
+\text{s.t.} \\
+& \pi_{n1,p1} + \mu_{bs} \ge 1,\quad \pi_{n1,p1} - \nu_{bc} \ge 2
+\end{aligned}
+$$
+$$
+\begin{aligned}
+& \pi_{n1,p1} \in \mathbb{R} \\
+& \mu_{bs} \ge 0 \\
+& \nu_{bc} \ge 0
+\end{aligned}
+$$
+""".strip()
+    issues = validate_generated_math_response(context, response)
+    assert "Dual response first block must not horizontally pack multiple inequalities." in issues
+
+
 def test_validate_generated_math_response_flags_missing_proof_environment():
     context = build_formal_math_context(make_state(), "Show me that Theorem 1 holds.")
     issues = validate_generated_math_response(context, "Theorem 1 applies.")
