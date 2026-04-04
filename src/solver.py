@@ -11,6 +11,7 @@ import os
 
 from pyomo.environ import (
     ConcreteModel,
+    Constraint,
     SolverFactory,
     value,
 )
@@ -45,6 +46,8 @@ class SolveResult:
             "solver_time": self.solver_time,
             "solution": self.solution,
             "success": self.success,
+            "dual_values": _extract_dual_values(self.model),
+            "constraint_slacks": _extract_constraint_slacks(self.model),
         }
 
     def __repr__(self) -> str:
@@ -244,6 +247,40 @@ def _extract_solution(model: ConcreteModel) -> Dict[str, Any]:
             except Exception:
                 solution[name] = None
     return solution
+
+
+def _extract_dual_values(model: ConcreteModel) -> Dict[str, Optional[float]]:
+    """Extract imported dual values when available."""
+    dual_suffix = getattr(model, "dual", None)
+    if dual_suffix is None:
+        return {}
+
+    duals: Dict[str, Optional[float]] = {}
+    try:
+        for constraint_data, dual_value in dual_suffix.items():
+            duals[constraint_data.name] = None if dual_value is None else float(dual_value)
+    except Exception:
+        return {}
+    return duals
+
+
+def _extract_constraint_slacks(model: ConcreteModel) -> Dict[str, Optional[float]]:
+    """Extract simple primal slack values for active constraints."""
+    slacks: Dict[str, Optional[float]] = {}
+    try:
+        for constraint in model.component_data_objects(Constraint, active=True, descend_into=True):
+            lower = constraint.lower
+            upper = constraint.upper
+            body_value = value(constraint.body)
+            slack_candidates = []
+            if lower is not None:
+                slack_candidates.append(abs(body_value - value(lower)))
+            if upper is not None:
+                slack_candidates.append(abs(value(upper) - body_value))
+            slacks[constraint.name] = min(slack_candidates) if slack_candidates else 0.0
+    except Exception:
+        return {}
+    return slacks
 
 
 def extract_variable_values(

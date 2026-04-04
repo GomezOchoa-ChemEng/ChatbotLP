@@ -6,6 +6,7 @@ from pyomo.environ import (
     Objective,
     Constraint,
     ConstraintList,
+    Suffix,
     maximize,
 )
 
@@ -70,6 +71,7 @@ def _build_data_from_state(state):
 
 def build_model(data):
     model = ConcreteModel()
+    model.dual = Suffix(direction=Suffix.IMPORT)
 
     # =========================
     # SETS

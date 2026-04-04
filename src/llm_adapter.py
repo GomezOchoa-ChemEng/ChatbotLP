@@ -200,6 +200,8 @@ class GeminiExplanationGenerator(ExplanationGenerator):
         solve_result = _safe_json(context.get("solve_result"))
         theorem_checks = _safe_json(context.get("theorem_checks"))
         scenario_result = _safe_json(context.get("scenario_result"))
+        reasoning_package = _safe_json(context.get("reasoning_package"))
+        response_mode = context.get("response_mode", "")
 
         mode_instruction = {
             "hint": "Provide a short hint tied to the supplied instance. Do not give a full solution.",
@@ -207,12 +209,36 @@ class GeminiExplanationGenerator(ExplanationGenerator):
             "full": "Provide a complete explanation tied to the supplied instance and current structured state.",
         }[mode]
 
+        context_type = context.get("type", "general")
+        extra_instruction = (
+            "Add real explanatory value beyond the deterministic scaffold: synthesize, interpret, and prioritize what matters.\n"
+            "Do not merely restate the supplied outline."
+        )
+        if context_type == "scenario":
+            extra_instruction = (
+                "This is a solver-grounded scenario comparison.\n"
+                "Add real explanatory value beyond the deterministic scaffold.\n"
+                "Use the supplied baseline and modified solve artifacts.\n"
+                "Structure the answer around baseline, modified scenario, what changed, what did not change, and interpretation.\n"
+                "Do not answer with generic LP theory when the solver-backed comparison is available."
+            )
+        elif context_type == "sampat_reasoning":
+            extra_instruction = (
+                "This is a grounded Sampat explanation request.\n"
+                "Respect the response mode exactly: paper_grounded_explanation, model_grounded_formulation, solver_grounded_verification, or theorem_grounded_proof.\n"
+                "Add real explanatory value beyond the deterministic scaffold.\n"
+                "Use the deterministic artifacts as authority, but add concise economic interpretation and synthesis instead of repeating the scaffold verbatim.\n"
+                "Do not merely restate the supplied outline.\n"
+                "For explanation requests, avoid dumping the full dual or primal unless the package explicitly calls for it."
+            )
+
         return f"""
 You are an assistant for a deterministic coordinated supply chain optimization chatbot.
 
 Stay grounded in the supplied structured context.
 Do not fabricate data, entity IDs, theorem applicability, or solver results.
 If information is missing, state that clearly.
+{extra_instruction}
 
 MODE:
 {mode_instruction}
@@ -237,6 +263,12 @@ THEOREM CHECKS:
 
 SCENARIO RESULT:
 {scenario_result}
+
+RESPONSE MODE:
+{response_mode}
+
+REASONING PACKAGE:
+{reasoning_package}
 """.strip()
 
     def _build_formal_math_prompt(self, mode: str, context: Dict[str, Any]) -> str:

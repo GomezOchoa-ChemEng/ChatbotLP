@@ -86,3 +86,15 @@ def test_reasoning_engine_collects_model_artifacts_for_technology_question():
     assert "primal_scaffold" in artifact_names
     assert package.recommended_path == "sampat_reasoning"
 
+
+def test_reasoning_engine_handles_section_23_as_paper_grounded_interpretation():
+    engine = SampatReasoningEngine()
+
+    package = engine.build_reasoning_package(
+        "Explain how Section 2.3 changes the interpretation of bids and prices.",
+        make_state(),
+    )
+
+    assert package.plan.object == "section23"
+    assert package.response_mode == "paper_grounded_explanation"
+    assert any("Section 2.3" in line for line in package.answer_outline)

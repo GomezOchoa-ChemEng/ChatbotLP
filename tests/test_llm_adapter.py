@@ -217,6 +217,21 @@ class TestGeminiExplanationGenerator(unittest.TestCase):
         self.assertIn("use only supplied notation", prompt)
         self.assertIn("theorem_1", prompt)
 
+    def test_sampat_reasoning_prompt_requests_value_add_not_scaffold_repetition(self):
+        generator = GeminiExplanationGenerator(client=Mock(), model_name="gemini-test")
+        prompt = generator._build_prompt(
+            "guided",
+            {
+                "type": "sampat_reasoning",
+                "user_message": "What do node-product prices represent?",
+                "response_mode": "paper_grounded_explanation",
+                "reasoning_package": {"answer_outline": ["deterministic outline"]},
+            },
+        )
+        self.assertIn("Add real explanatory value", prompt)
+        self.assertIn("Do not merely restate the supplied outline", prompt)
+        self.assertIn("paper_grounded_explanation", prompt)
+
     def test_generate_raises_clean_runtime_error(self):
         mock_client = Mock()
         mock_client.models.generate_content.side_effect = Exception("api down")

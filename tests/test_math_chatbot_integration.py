@@ -2,12 +2,14 @@ import sys
 import re
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path.cwd()))
 
 from src.chatbot_engine import run_chatbot_session
 from src.math_response_generator import MathResponseGenerator
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
+from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
 
 
 def make_state() -> ProblemState:
@@ -156,3 +158,28 @@ def test_chatbot_handles_mixed_dual_and_interpretation_prompt():
     assert result["success"]
     assert "The dual problem is formulated as follows:" in result["response"]
     assert "prices" in result["response"].lower() or "incentive" in result["response"].lower()
+
+
+def test_llm_backed_price_explanation_can_add_value_beyond_deterministic_baseline():
+    registry = LLMProviderRegistry.get_instance()
+    registry.reset()
+    registry.set_provider(
+        RuleBasedProvider(
+            intent_router=Mock(detect_intent=Mock(return_value="explanation")),
+            parse_function=lambda t: {},
+            generate_function=lambda mode, ctx: (
+                "Paper-grounded explanation\n\n"
+                "Node-product prices summarize marginal system value at each node-product pair, and in this instance they also help explain which bid quantities are scarce versus infra-marginal."
+            ),
+        )
+    )
+
+    try:
+        deterministic = run_chatbot_session(make_state(), "What do node-product prices represent?", use_llm=False)
+        enriched = run_chatbot_session(make_state(), "What do node-product prices represent?", use_llm=True)
+    finally:
+        registry.reset()
+
+    assert deterministic["response"] != enriched["response"]
+    assert "marginal system value" in enriched["response"]
+    assert "scarce" in enriched["response"]

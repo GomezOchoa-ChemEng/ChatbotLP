@@ -10,8 +10,11 @@ from src.schema import (
     Supplier,
     Consumer,
     Bid,
+    TransportLink,
+    Technology,
 )
 from src.chatbot_engine import IntentRouter, run_chatbot_session
+from src.solver import SolveResult
 
 
 def make_minimal_state():
@@ -39,6 +42,21 @@ def make_minimal_state():
             product_id="p1",
             price=2.0,
             quantity=5,
+        )
+    )
+    return s
+
+
+def make_case_c_state():
+    s = make_minimal_state()
+    s.add_product(Product(id="p2"))
+    s.add_transport(TransportLink(id="t1", origin="n1", destination="n1", product="p1", capacity=100))
+    s.add_technology(
+        Technology(
+            id="tech1",
+            node="n1",
+            capacity=100,
+            yield_coefficients={"p1": -1.0, "p2": 0.8},
         )
     )
     return s
@@ -76,6 +94,12 @@ class TestIntentDetection:
         assert router.detect_intent("Run a what-if scenario") == "scenario"
         assert router.detect_intent("What if I change the capacity?") == "scenario"
         assert router.detect_intent("Modify the price parameter") == "scenario"
+        assert (
+            router.detect_intent(
+                "How would the optimal flows and prices change if the transformation technology were unavailable?"
+            )
+            == "scenario"
+        )
 
     def test_explanation_intent(self):
         router = IntentRouter()
@@ -170,6 +194,76 @@ class TestScenario:
         assert result["intent"] == "scenario"
         assert not result["success"]
 
+    def test_scenario_response_mentions_baseline_and_modified(self, monkeypatch):
+        state = make_minimal_state()
+        base = SolveResult(
+            model=None,
+            status="optimal",
+            message="",
+            objective_value=5.0,
+            solver_time=0.0,
+            solution={"q": {"b1": 5.0, "b2": 5.0}, "f": {}, "x": {}},
+            success=True,
+        )
+        modified = SolveResult(
+            model=None,
+            status="optimal",
+            message="",
+            objective_value=7.0,
+            solver_time=0.0,
+            solution={"q": {"b1": 7.0, "b2": 5.0}, "f": {}, "x": {}},
+            success=True,
+        )
+
+        monkeypatch.setattr(
+            "src.chatbot_engine.run_scenario",
+            lambda *args, **kwargs: {
+                "base": base,
+                "scenario": modified,
+                "difference": {
+                    "objective_delta": 2.0,
+                    "accepted_bid_changes": {"b1": {"before": 5.0, "after": 7.0, "delta": 2.0}},
+                    "flow_changes": {},
+                    "technology_activity_changes": {},
+                    "price_changes": {},
+                    "binding_constraint_changes": {},
+                    "unchanged_dimensions": ["flow_changes", "technology_activity_changes", "price_changes"],
+                },
+            },
+        )
+
+        result = run_chatbot_session(state, "What happens if supplier capacity increases from 100 to 150?")
+        assert result["intent"] == "scenario"
+        assert result["response_mode"] == "solver_grounded_verification"
+        assert "Baseline" in result["response"]
+        assert "Modified scenario" in result["response"]
+
+    def test_case_c_unavailable_technology_routes_to_scenario(self, monkeypatch):
+        state = make_case_c_state()
+        monkeypatch.setattr(
+            "src.chatbot_engine.run_scenario",
+            lambda *args, **kwargs: {
+                "base": SolveResult(None, "optimal", "", 10.0, 0.0, {"q": {}, "f": {}, "x": {"tech1": 3.0}}, True),
+                "scenario": SolveResult(None, "optimal", "", 8.0, 0.0, {"q": {}, "f": {}, "x": {"tech1": 0.0}}, True),
+                "difference": {
+                    "objective_delta": -2.0,
+                    "accepted_bid_changes": {},
+                    "flow_changes": {},
+                    "technology_activity_changes": {"tech1": {"before": 3.0, "after": 0.0, "delta": -3.0}},
+                    "price_changes": {},
+                    "binding_constraint_changes": {},
+                    "unchanged_dimensions": ["flow_changes", "price_changes"],
+                },
+            },
+        )
+        result = run_chatbot_session(
+            state,
+            "How would the optimal flows and prices change if the transformation technology were unavailable?",
+        )
+        assert result["intent"] == "scenario"
+        assert result["scenario_extraction"]["parameter_type"] == "technology_availability"
+        assert result["success"]
+
 
 class TestChatbotEngineLLMIntegration:
     """Focus tests on optional LLM integration paths."""
@@ -261,6 +355,13 @@ class TestExplanation:
         assert result["sampat_reasoning_package"].plan.object == "benchmark_case"
         assert "Case A" in result["response"]
         assert "Case B" in result["response"]
+
+    def test_section_23_interpretation_is_not_a_dual_dump(self):
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "Explain how Section 2.3 changes the interpretation of bids and prices.")
+        assert result["success"]
+        assert result["sampat_reasoning_package"].response_mode == "paper_grounded_explanation"
+        assert "The dual problem is formulated as follows:" not in result["response"]
 
 
 class TestModes:

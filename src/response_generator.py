@@ -41,7 +41,15 @@ class ResponseGenerator:
     def _get_scenario_results(self, context: Dict[str, Any]) -> Dict[str, Any]:
         return context.get("scenario_result", context.get("scenario_results", {})) or {}
 
+    def _get_scenario_summary(self, context: Dict[str, Any]) -> str:
+        scenario_results = self._get_scenario_results(context)
+        return str(scenario_results.get("summary", "") or "")
+
     def _generate_hint(self, context: Dict[str, Any]) -> str:
+        scenario_summary = self._get_scenario_summary(context)
+        if scenario_summary:
+            return scenario_summary
+
         hints = []
 
         validation = self._get_validation(context)
@@ -80,6 +88,10 @@ class ResponseGenerator:
         return "Hints: " + " ".join(hints)
 
     def _generate_guided(self, context: Dict[str, Any]) -> str:
+        scenario_summary = self._get_scenario_summary(context)
+        if scenario_summary:
+            return scenario_summary
+
         response_parts = []
 
         problem_state = context.get("problem_state")
@@ -159,6 +171,10 @@ class ResponseGenerator:
         return "Guided Response:\n" + "\n".join(response_parts)
 
     def _generate_full(self, context: Dict[str, Any]) -> str:
+        scenario_summary = self._get_scenario_summary(context)
+        if scenario_summary:
+            return scenario_summary
+
         response_parts = []
 
         problem_state = context.get("problem_state")

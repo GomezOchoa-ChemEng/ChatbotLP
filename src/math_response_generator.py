@@ -204,6 +204,7 @@ class MathResponseGenerator:
                     "answer the user's actual question directly",
                     "for explanation requests, do not restate a full optimization model unless the response contract explicitly requires it",
                     "separate formulation, proof, and interpretation when more than one is requested",
+                    "for explanation requests, add interpretive value beyond the deterministic scaffold instead of merely rephrasing it",
                 ]
             )
             if response_contract.get("avoid_full_dual_formulation"):

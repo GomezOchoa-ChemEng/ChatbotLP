@@ -22,7 +22,11 @@ from .validator import validate_state
 from .model_builder import build_model_from_state
 from .solver import solve_model
 from .theorem_checker import check_theorems
-from .scenario_engine import run_scenario
+from .scenario_engine import (
+    extract_scenario_request,
+    run_scenario,
+    summarize_scenario_results,
+)
 from .response_generator import generate_response
 from .formal_context_builder import (
     build_formal_math_context,
@@ -67,10 +71,63 @@ class IntentRouter:
 
     def detect_intent(self, text: str) -> str:
         """Detect the primary intent from user text."""
+        if self._looks_like_solver_grounded_scenario(text):
+            return "scenario"
         for intent, pattern in self.intent_patterns:
             if pattern.search(text):
                 return intent
         return "explanation"
+
+    def _looks_like_solver_grounded_scenario(self, text: str) -> bool:
+        lowered = text.lower()
+        scenario_markers = [
+            "what happens if",
+            "how would",
+            "how do",
+            "if ",
+            "increase",
+            "decrease",
+            "change from",
+            "changes from",
+            "unavailable",
+            "disable",
+            "remove",
+        ]
+        parameter_markers = [
+            "capacity",
+            "bid",
+            "price",
+            "cost",
+            "technology",
+            "transformation",
+            "transport",
+            "supplier",
+            "consumer",
+        ]
+        outcome_markers = [
+            "solution",
+            "optimal",
+            "flows",
+            "prices",
+            "objective",
+            "binding",
+            "accepted",
+            "compare",
+        ]
+        return (
+            any(marker in lowered for marker in scenario_markers)
+            and any(marker in lowered for marker in parameter_markers)
+        ) or (
+            "what if" in lowered
+            and any(marker in lowered for marker in parameter_markers)
+        ) or (
+            any(marker in lowered for marker in ["what happens if", "how would"])
+            and any(marker in lowered for marker in parameter_markers)
+        ) or (
+            any(marker in lowered for marker in scenario_markers)
+            and any(marker in lowered for marker in parameter_markers)
+            and any(marker in lowered for marker in outcome_markers)
+        )
 
 
 def incorporate_parsed_entities(state: ProblemState, parsed_entities: Dict[str, list]) -> None:
@@ -306,36 +363,22 @@ def run_chatbot_session(
             )
 
         elif intent == "scenario":
-            change_spec = {}
+            extraction = extract_scenario_request(state, user_message)
+            result["response_mode"] = "solver_grounded_verification"
+            result["scenario_extraction"] = extraction
 
-            capacity_match = re.search(
-                r"(?:capacity|cap)\s+to\s+(\d+)",
-                user_message,
-                re.IGNORECASE,
-            )
-            if capacity_match:
-                new_cap = int(capacity_match.group(1))
-                if state.suppliers:
-                    change_spec["suppliers"] = [
-                        {"id": state.suppliers[0].id, "capacity": new_cap}
-                    ]
-
-            price_match = re.search(
-                r"(?:price|cost)\s+to\s+([\d.-]+)",
-                user_message,
-                re.IGNORECASE,
-            )
-            if price_match:
-                new_price = float(price_match.group(1))
-                if state.bids:
-                    change_spec["bids"] = [
-                        {"id": state.bids[0].id, "price": new_price}
-                    ]
-
-            if change_spec:
-                change_spec["name"] = "user_scenario"
-                change_spec["description"] = user_message
-                scen_results = run_scenario(state, change_spec, solve=False)
+            if extraction.get("missing"):
+                missing_text = ", ".join(extraction["missing"])
+                result["response"] = (
+                    "Could not fully ground the scenario request.\n\n"
+                    f"Missing: {missing_text}.\n"
+                    "Try specifying the entity or the new value explicitly."
+                )
+                result["success"] = False
+            else:
+                scen_results = run_scenario(state, extraction["change_spec"], solve=True)
+                scen_results["summary"] = summarize_scenario_results(extraction, scen_results)
+                scen_results["requested_dimensions"] = extraction.get("requested_dimensions", [])
 
                 context = {
                     "type": "scenario",
@@ -343,15 +386,12 @@ def run_chatbot_session(
                     "intent": intent,
                     "problem_state": state,
                     "scenario_result": scen_results,
+                    "scenario_extraction": extraction,
+                    "response_mode": "solver_grounded_verification",
                 }
                 result["response"] = generate_response(mode, context, use_llm=use_llm)
+                result["scenario_result"] = scen_results
                 result["success"] = True
-            else:
-                result["response"] = (
-                    "Could not parse scenario parameters. "
-                    "Try: 'increase capacity to 20' or 'change price to 5.0'"
-                )
-                result["success"] = False
 
         else:
             context = {

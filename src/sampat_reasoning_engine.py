@@ -186,6 +186,26 @@ class SampatReasoningEngine:
             response = MathResponseGenerator(use_llm=use_llm).generate(formal_context)
             return response, MathResponseGenerator.infer_render_mode(formal_context)
 
+        if use_llm:
+            try:
+                from .llm_adapter import LLMProviderRegistry
+
+                provider = LLMProviderRegistry.get_instance()
+                llm_gen = provider.get_explanation_generator()
+                llm_response = llm_gen.generate(
+                    "full" if pedagogical_mode == "full" else "guided",
+                    {
+                        "type": "sampat_reasoning",
+                        "user_message": package.plan.user_query,
+                        "response_mode": package.response_mode,
+                        "reasoning_package": package.model_dump(),
+                    },
+                )
+                if llm_response and llm_response.strip():
+                    return llm_response.strip(), "markdown"
+            except Exception:
+                pass
+
         lines = [
             self._grounding_label(package.response_mode),
         ]
@@ -198,7 +218,9 @@ class SampatReasoningEngine:
     def _infer_plan(self, user_query: str) -> SampatReasoningPlan:
         text = user_query.lower()
 
-        if "theorem" in text or "proof" in text or "strong duality" in text:
+        if "section 2.3" in text:
+            obj = "section23"
+        elif "theorem" in text or "proof" in text or "strong duality" in text:
             obj = "theorem"
         elif "technology" in text or "technologies" in text or "yield" in text or "transformation" in text:
             obj = "technologies"
@@ -502,9 +524,24 @@ class SampatReasoningEngine:
             benchmark = artifact_map.get("benchmark_metadata")
             current_case = benchmark.data.get("case_family") if benchmark is not None else "unknown"
             lines.append(
-                "Case A is the no-transformation benchmark, Case B keeps the same general clearing structure but allows negative bids, and Case C adds transformation technologies with explicit yield coefficients."
+                "Case A is the no-transformation benchmark, Case B keeps the same clearing structure but allows negative bids, and Case C adds transformation technologies with explicit yield coefficients."
+            )
+            lines.append(
+                "In economic terms, Case B changes how bids and prices should be interpreted because some accepted activities can represent disposal or remediation value rather than ordinary supply cost, while Case C changes prices by coupling products through technology yields."
+            )
+            lines.append(
+                "So a Case A versus Case B comparison should focus on bid sign conventions and price interpretation, whereas a Case A versus Case C comparison should focus on how technology activity reshapes scarcity across products."
             )
             lines.append(f"The current state is closest to {current_case}.")
+
+        elif plan.object == "section23":
+            lines.append(
+                "Section 2.3 changes the interpretation of bids and prices by allowing economically meaningful negative bids and negative prices in the coordinated clearing framework."
+            )
+            lines.append(SECTION23_CONCEPTS["negative_bids"])
+            lines.append(
+                "That means prices should not be read only as ordinary purchase prices; they can also encode disposal, remediation, storage, or value-of-service effects when the benchmark data supports those mechanisms."
+            )
 
         elif plan.object == "theorem":
             theorem_artifact = artifact_map.get("theorem_metadata")
