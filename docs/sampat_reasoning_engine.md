@@ -83,5 +83,8 @@ The first version is intentionally limited to:
 - benchmark families Case A, Case B, and Case C
 - existing deterministic structures already implemented in ChatbotLP
 
-It is not a generic paper-QA engine and does not claim arbitrary symbolic generalization beyond the current supported scope.
+For Case C specifically, the deterministic pipeline now carries `ProblemState.technologies`
+through `model_builder` into explicit Pyomo technology activity variables, node-product
+yield terms, and optional technology capacity constraints.
 
+It is not a generic paper-QA engine and does not claim arbitrary symbolic generalization beyond the current supported scope.

@@ -10,6 +10,64 @@ from pyomo.environ import (
 )
 
 
+def _build_data_from_state(state):
+    data = {
+        "nodes": [n.id for n in state.nodes],
+        "products": [p.id for p in state.products],
+        "suppliers": [s.id for s in state.suppliers],
+        "consumers": [c.id for c in state.consumers],
+        "bids": {},
+        "transport_arcs": [],
+        "transport_costs": {},
+        "transport_capacities": {},
+        "technologies": [],
+        "technology_nodes": {},
+        "technology_capacities": {},
+        "technology_costs": {},
+        "technology_yields": {},
+    }
+
+    supplier_map = {s.id: s for s in state.suppliers}
+    consumer_map = {c.id: c for c in state.consumers}
+    technology_map = {t.id: t for t in state.technologies}
+
+    for b in state.bids:
+        if b.owner_type == "supplier":
+            node = supplier_map[b.owner_id].node
+        elif b.owner_type == "consumer":
+            node = consumer_map[b.owner_id].node
+        elif b.owner_type == "technology":
+            node = technology_map[b.owner_id].node
+        else:
+            node = None
+
+        data["bids"][b.id] = {
+            "type": b.owner_type,
+            "owner_id": b.owner_id,
+            "node": node,
+            "product": b.product_id,
+            "value": b.price,
+            "quantity": b.quantity,
+        }
+
+    for t in state.transport_links:
+        arc = (t.origin, t.destination)
+        data["transport_arcs"].append(arc)
+        data["transport_capacities"][arc] = t.capacity
+        data["transport_costs"][arc] = getattr(t, "cost", 0.0)
+
+    for tech in state.technologies:
+        data["technologies"].append(tech.id)
+        data["technology_nodes"][tech.id] = tech.node
+        data["technology_costs"][tech.id] = 0.0
+        if tech.capacity is not None:
+            data["technology_capacities"][tech.id] = tech.capacity
+        for product_id, coeff in tech.yield_coefficients.items():
+            data["technology_yields"][(tech.id, product_id)] = coeff
+
+    return data
+
+
 def build_model(data):
     model = ConcreteModel()
 
@@ -137,49 +195,15 @@ def build_model(data):
         if cap is not None:
             model.transport_capacity.add(model.f[i, j] <= cap)
 
+    # Technology bounds
+    model.technology_capacity = ConstraintList()
+    for k in model.K:
+        cap = data["technology_capacities"].get(k, None)
+        if cap is not None:
+            model.technology_capacity.add(model.x[k] <= cap)
+
     return model
 
 
 def build_model_from_state(state):
-    data = {
-        "nodes": [n.id for n in state.nodes],
-        "products": [p.id for p in state.products],
-        "suppliers": [s.id for s in state.suppliers],
-        "consumers": [c.id for c in state.consumers],
-        "bids": {},
-        "transport_arcs": [],
-        "transport_costs": {},
-        "transport_capacities": {},
-        "technologies": [],
-        "technology_costs": {},
-        "technology_yields": {},
-        "technology_nodes": {},
-    }
-
-    supplier_map = {s.id: s for s in state.suppliers}
-    consumer_map = {c.id: c for c in state.consumers}
-
-    for b in state.bids:
-        if b.owner_type == "supplier":
-            node = supplier_map[b.owner_id].node
-        elif b.owner_type == "consumer":
-            node = consumer_map[b.owner_id].node
-        else:
-            node = None
-
-        data["bids"][b.id] = {
-            "type": b.owner_type,
-            "owner_id": b.owner_id,
-            "node": node,
-            "product": b.product_id,
-            "value": b.price,
-            "quantity": b.quantity,
-        }
-
-    for t in state.transport_links:
-        arc = (t.origin, t.destination)
-        data["transport_arcs"].append(arc)
-        data["transport_capacities"][arc] = t.capacity
-        data["transport_costs"][arc] = getattr(t, "cost", 0.0)
-
-    return build_model(data)
+    return build_model(_build_data_from_state(state))
