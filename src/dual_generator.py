@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from pyomo.environ import ConcreteModel, ConstraintList, Objective, Reals, Set, Var, minimize
+
 from .schema import ProblemState
 
 
@@ -269,3 +271,35 @@ def infer_negative_bid_notes(state: ProblemState) -> List[str]:
             ]
         )
     return notes
+
+
+def build_dual_model(dual_representation: Dict[str, Any]) -> ConcreteModel:
+    """Build a Pyomo model for the canonical dual scaffold."""
+
+    model = ConcreteModel()
+    dual_variables = dual_representation.get("dual_variables", [])
+    objective_terms = dual_representation.get("objective_terms", [])
+    stationarity_conditions = dual_representation.get("stationarity_conditions", [])
+    dual_map = {item["symbol"]: item for item in dual_variables}
+    symbols = list(dual_map)
+
+    model.Y = Set(initialize=symbols)
+
+    def dual_bounds(_model: ConcreteModel, symbol: str):
+        if dual_map[symbol].get("sense") == ">= 0":
+            return (0.0, None)
+        return (None, None)
+
+    model.y = Var(model.Y, domain=Reals, bounds=dual_bounds)
+    model.obj = Objective(
+        expr=sum(float(term["coefficient"]) * model.y[term["symbol"]] for term in objective_terms),
+        sense=minimize,
+    )
+    model.stationarity = ConstraintList()
+    for condition in stationarity_conditions:
+        terms = condition.get("dual_expression_terms", [])
+        lhs = sum(float(term["coefficient"]) * model.y[term["dual_symbol"]] for term in terms)
+        rhs = float(condition.get("objective_coefficient", 0.0))
+        model.stationarity.add(lhs >= rhs)
+
+    return model

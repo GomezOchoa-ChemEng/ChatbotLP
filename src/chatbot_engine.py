@@ -31,6 +31,7 @@ from .formal_context_builder import (
 from .math_response_generator import generate_math_response
 from .math_response_generator import MathResponseGenerator
 from .proof_validator import validate_formal_math_context
+from .sampat_reasoning_engine import SampatReasoningEngine
 from .domain.sampat2019 import get_theorem_metadata
 
 
@@ -164,6 +165,50 @@ def run_chatbot_session(
     }
 
     try:
+        reasoning_engine = SampatReasoningEngine()
+        if reasoning_engine.should_handle(user_message, intent):
+            reasoning_package = reasoning_engine.build_reasoning_package(
+                user_query=user_message,
+                state=state,
+                pedagogical_mode=mode,
+            )
+            response_text, render_mode = reasoning_engine.render_response(
+                package=reasoning_package,
+                state=state,
+                pedagogical_mode=mode,
+                use_llm=use_llm,
+            )
+            result["response"] = response_text
+            result["sampat_reasoning_package"] = reasoning_package
+            result["render_mode"] = render_mode
+
+            if reasoning_package.recommended_path == "math_response_generator":
+                formal_context = build_formal_math_context(
+                    state=state,
+                    user_message=user_message,
+                    pedagogical_mode=mode,
+                )
+                result["formal_math_context"] = formal_context
+                request_type = identify_formal_math_request(user_message)["request_type"]
+                fatal_issues = validate_formal_math_context(formal_context)
+                theorem_supported = (
+                    True
+                    if not formal_context.theorem_id
+                    else get_theorem_metadata(formal_context.theorem_id) is not None
+                )
+                result["success"] = (
+                    formal_context.semantic_plan.get(
+                        "is_supported_request",
+                        request_type != "general_math_explanation",
+                    )
+                    and not fatal_issues
+                    and theorem_supported
+                )
+            else:
+                result["success"] = reasoning_package.can_answer
+
+            return result
+
         if intent == "problem_formulation":
             parsed = parse_supply_chain_text(user_message, use_llm=use_llm)
             if any(parsed.values()):
@@ -255,7 +300,7 @@ def run_chatbot_session(
                 else get_theorem_metadata(formal_context.theorem_id) is not None
             )
             result["success"] = (
-                request_type != "general_math_explanation"
+                formal_context.semantic_plan.get("is_supported_request", request_type != "general_math_explanation")
                 and not fatal_issues
                 and theorem_supported
             )

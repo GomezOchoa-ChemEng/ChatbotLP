@@ -133,6 +133,8 @@ class FormalMathContext(BaseModel):
     benchmark_case: Optional[str] = None
     supporting_equations: List[str] = Field(default_factory=list)
     source_notes: List[str] = Field(default_factory=list)
+    semantic_plan: Dict[str, Any] = Field(default_factory=dict)
+    problem_state_snapshot: Dict[str, Any] = Field(default_factory=dict)
     latex_mode: str = "align"
     pedagogical_mode: str = "guided"
     user_request: Optional[str] = None

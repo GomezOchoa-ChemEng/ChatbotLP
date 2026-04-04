@@ -13,6 +13,7 @@ from src.math_response_generator import (
 )
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
 from src.llm_adapter import LLMProviderRegistry, GeminiLLMProvider
+from src.solver import SolveResult
 
 
 def make_state() -> ProblemState:
@@ -59,6 +60,21 @@ def test_dual_generation_without_llm():
     assert "\\usepackage" not in response
     assert "\\begin{document}" not in response
     assert "\\end{document}" not in response
+
+
+def test_primal_generation_without_llm():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "Formulate the current coordinated clearing problem as the primal linear program in LaTeX.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert "The primal problem is formulated as follows:" in response
+    assert "**Primal Problem.**" in response
+    assert "(P)\\qquad \\max" in response
+    assert "\\text{s.t.}" in response
+    assert "q_{" in response
 
 
 def test_theorem_generation_without_llm():
@@ -236,3 +252,88 @@ def test_theorem_1_response_requires_primal_and_dual_semantics():
     assert "z_P^* = z_D^*" in response
     assert "\\mathcal{L}" in response
     assert "\\text{sign restrictions}" in response
+
+
+def test_general_math_explanation_for_dual_variable_meaning_avoids_full_dual_dump():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "Explain the economic meaning of the dual variables in the current model.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert "The dual problem is formulated as follows:" not in response
+    assert "node-product prices" in response or "node-product price" in response
+    assert "marginal" in response or "scarcity" in response
+    assert "\\pi_{n1,p1}" in response
+
+
+def test_general_math_explanation_for_strong_duality_answers_requested_concept():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "Explain strong duality for the current model and outline the proof structure.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert "strong duality" in response.lower()
+    assert "z_P^* = z_D^*" in response
+    assert "The dual problem is formulated as follows:" not in response
+
+
+def test_mixed_dual_and_interpretation_request_keeps_both_parts():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "First write the dual problem in LaTeX, and then explain how that dual relates to prices and incentives in the model.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert "The dual problem is formulated as follows:" in response
+    assert "prices" in response.lower() or "incentive" in response.lower()
+    assert "\\pi_{n1,p1}" in response
+
+
+def test_complementary_slackness_verification_uses_solver_backed_results():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "Verify the complementary slackness conditions for the current primal-dual pair and explain their economic interpretation.",
+    )
+
+    primal_result = SolveResult(
+        model=object(),
+        status="optimal",
+        message="mock primal solve",
+        objective_value=30.0,
+        solver_time=0.01,
+        solution={
+            "q": {"bs": 10.0, "bc": 10.0},
+            "f": {},
+            "x": {},
+        },
+        success=True,
+    )
+    dual_result = SolveResult(
+        model=object(),
+        status="optimal",
+        message="mock dual solve",
+        objective_value=30.0,
+        solver_time=0.01,
+        solution={
+            "y": {
+                "\\pi_{n1,p1}": -1.0,
+                "\\mu_{bs}": 0.0,
+                "\\nu_{bc}": 3.0,
+            }
+        },
+        success=True,
+    )
+
+    with patch("src.math_response_generator.solve_model", side_effect=[primal_result, dual_result]):
+        response = generate_math_response(context, use_llm=False)
+
+    assert "Complementary slackness was checked using solver-backed primal and dual solutions." in response
+    assert "Primal status: optimal; dual status: optimal." in response
+    assert "All checked complementary-slackness products are within tolerance." in response
+    assert "Economic interpretation:" in response

@@ -26,6 +26,7 @@ def test_chatbot_routes_dual_request():
     first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", result["response"], flags=re.DOTALL)[0]
     assert result["intent"] == "formal_math"
     assert result["success"]
+    assert result["sampat_reasoning_package"].recommended_path == "math_response_generator"
     assert result["render_mode"] == "markdown_latex"
     assert "The dual problem is formulated as follows:" in result["response"]
     assert result["response"].count("The dual problem is formulated as follows:") == 1
@@ -40,6 +41,19 @@ def test_chatbot_routes_dual_request():
     assert "(\\text{supplier bid})" not in result["response"]
     assert "balance_" not in result["response"]
     assert "\\documentclass" not in result["response"]
+
+
+def test_chatbot_routes_primal_request():
+    result = run_chatbot_session(
+        make_state(),
+        "Formulate the current coordinated clearing problem as the primal linear program in LaTeX.",
+    )
+
+    assert result["intent"] == "formal_math"
+    assert result["success"]
+    assert result["render_mode"] == "markdown_latex"
+    assert "The primal problem is formulated as follows:" in result["response"]
+    assert "(P)\\qquad \\max" in result["response"]
 
 
 def test_chatbot_dual_request_hides_invalid_llm_output_and_validation_notes():
@@ -92,6 +106,7 @@ def test_chatbot_routes_theorem_request():
     result = run_chatbot_session(make_state(), "Show me that Theorem 1 holds.")
     assert result["intent"] == "formal_math"
     assert result["success"]
+    assert result["sampat_reasoning_package"].response_mode == "theorem_grounded_proof"
     assert "**Theorem 1**" in result["response"]
     assert result["render_mode"] == "markdown_latex"
     assert "**Primal Problem.**" in result["response"]
@@ -117,3 +132,27 @@ def test_chatbot_out_of_scope_theorem_request_is_unsuccessful():
     assert result["intent"] == "formal_math"
     assert not result["success"]
     assert "out of scope" in result["response"]
+
+
+def test_chatbot_handles_dual_variable_meaning_as_explanation_not_formulation():
+    result = run_chatbot_session(
+        make_state(),
+        "Explain the economic meaning of the dual variables in the current model.",
+    )
+
+    assert result["intent"] == "formal_math"
+    assert result["success"]
+    assert "The dual problem is formulated as follows:" not in result["response"]
+    assert "price" in result["response"].lower() or "scarcity" in result["response"].lower()
+
+
+def test_chatbot_handles_mixed_dual_and_interpretation_prompt():
+    result = run_chatbot_session(
+        make_state(),
+        "First write the dual problem in LaTeX, and then explain how that dual relates to prices and incentives in the model.",
+    )
+
+    assert result["intent"] == "formal_math"
+    assert result["success"]
+    assert "The dual problem is formulated as follows:" in result["response"]
+    assert "prices" in result["response"].lower() or "incentive" in result["response"].lower()

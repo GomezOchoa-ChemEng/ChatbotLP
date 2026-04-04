@@ -57,10 +57,15 @@ def validate_formal_math_context(context: FormalMathContext) -> List[str]:
             issues.append("Dual generation requires dual variables derived from known constraints.")
         if not context.primal_formulation:
             issues.append("Dual generation requires a primal formulation scaffold.")
+    if context.request_type == "primal":
+        if not context.primal_formulation:
+            issues.append("Primal generation requires a primal formulation scaffold.")
 
     required_symbols = []
     if context.request_type == "dual":
         required_symbols.extend(["q_b", "pi_np"])
+    if context.request_type == "primal":
+        required_symbols.append("q_b")
     if context.request_type in {"theorem_proof", "theorem_explanation"}:
         required_symbols.append("q_b")
 
@@ -134,9 +139,14 @@ def validate_generated_math_response(
                 issues.append("Dual response first block must contain only the objective and inequalities.")
             if not first_rows or "(D)" not in first_rows[0] or "\\min" not in first_rows[0]:
                 issues.append("Dual response first block must begin with the dual objective.")
-            if len(first_rows) < 3 or first_rows[1].replace("&", "").strip() != "\\text{s.t.}":
+            s_t_on_own_line = len(first_rows) >= 3 and first_rows[1].replace("&", "").strip() == "\\text{s.t.}"
+            s_t_with_first_inequality = (
+                len(first_rows) >= 2 and "\\text{s.t.}" in first_rows[1] and _contains_relation(first_rows[1])
+            )
+            if not s_t_on_own_line and not s_t_with_first_inequality:
                 issues.append("Dual response first block must place s.t. on its own line.")
-            inequality_rows = [row for row in first_rows[2:] if row.replace("&", "").strip()]
+            inequality_rows_source = first_rows[2:] if s_t_on_own_line else first_rows[1:]
+            inequality_rows = [row for row in inequality_rows_source if row.replace("&", "").strip()]
             if not inequality_rows:
                 issues.append("Dual response first block must place the inequalities under s.t.")
             if any(not _contains_relation(row) for row in inequality_rows):
@@ -155,6 +165,17 @@ def validate_generated_math_response(
                 issues.append("Dual response second block must contain sign restrictions only.")
             if any("\\text{" in row for row in second_rows):
                 issues.append("Dual response must not include inline labels inside the dual blocks.")
+
+    if context.request_type == "primal":
+        lowered = response_text.lower()
+        if "the primal problem is formulated as follows:" not in lowered:
+            issues.append("Primal response must introduce the primal formulation explicitly.")
+        if "(p)" not in lowered or "\\max" not in response_text:
+            issues.append("Primal response must contain the primal label and objective.")
+        if "\\text{s.t.}" not in response_text:
+            issues.append("Primal response must include the constraint label s.t.")
+        if "q_b" not in response_text and "q_{" not in response_text:
+            issues.append("Primal response must include primal decision variables.")
 
     if context.request_type == "theorem_proof":
         if context.applicable is True:
@@ -197,5 +218,29 @@ def validate_generated_math_response(
             lowered = response_text.lower()
             if "cannot certify" not in lowered and "out of scope" not in lowered:
                 issues.append("Non-applicable proof response did not clearly explain the failure mode.")
+
+    if context.request_type == "general_math_explanation":
+        lowered = response_text.lower()
+        plan = context.semantic_plan
+        topics = set(plan.get("math_topics", []))
+        response_contract = plan.get("response_contract", {})
+
+        if response_contract.get("avoid_full_dual_formulation"):
+            if "the dual problem is formulated as follows:" in lowered:
+                issues.append("Explanation response drifted into a full dual formulation.")
+
+        if "strong_duality" in topics and "strong duality" not in lowered:
+            issues.append("Strong-duality explanation should explicitly mention strong duality.")
+
+        if "complementary_slackness" in topics and "complementary slackness" not in lowered:
+            issues.append("Complementary-slackness explanation should explicitly mention complementary slackness.")
+
+        if "node_product_prices" in topics and "\\pi" not in response_text and "price" not in lowered:
+            issues.append("Node-price explanation should mention the node-product price multipliers.")
+
+        if response_contract.get("include_economic_interpretation"):
+            economic_tokens = ("economic", "price", "scarcity", "shadow", "marginal", "incentive")
+            if not any(token in lowered for token in economic_tokens):
+                issues.append("Interpretive response should include an economic explanation.")
 
     return issues

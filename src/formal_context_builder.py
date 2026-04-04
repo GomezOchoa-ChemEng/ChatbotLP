@@ -12,7 +12,6 @@ from .dual_generator import (
 )
 from .schema import FormalMathContext, ProblemState, TheoremCheck
 from .theorem_checker import get_theorem_check_map
-from .validator import validate_state
 from .domain.sampat2019 import (
     CANONICAL_NOTATION,
     DOMAIN_SOURCE,
@@ -23,47 +22,180 @@ from .domain.sampat2019 import (
 )
 
 
-def identify_formal_math_request(user_message: str) -> Dict[str, Optional[str]]:
-    """Classify a user request into a supported formal-math request type."""
+def _contains_any(text: str, tokens: List[str]) -> bool:
+    return any(token in text for token in tokens)
+
+
+def plan_formal_math_request(user_message: str) -> Dict[str, Any]:
+    """Infer a small semantic plan for flexible formal-math generation."""
 
     message = user_message.lower()
     theorem_match = re.search(r"theorem\s+(\d+)", message)
     theorem_id = f"theorem_{theorem_match.group(1)}" if theorem_match else None
 
-    if "dual" in message:
+    mentions_dual = "dual" in message
+    mentions_primal = "primal" in message
+    mentions_negative_bids = _contains_any(
+        message,
+        ["negative bid", "negative bids", "negative price", "negative prices", "section 2.3"],
+    )
+    mentions_strong_duality = "strong duality" in message
+    mentions_complementary_slackness = "complementary slackness" in message
+    mentions_prices = _contains_any(
+        message,
+        ["node-product prices", "node product prices", "nodal prices", "dual variables", "prices", "price"],
+    )
+    wants_explanation = _contains_any(
+        message,
+        ["explain", "why", "meaning", "economic", "interpret", "interpretation", "role", "compare", "relationship", "relates", "incentives"],
+    )
+    wants_proof = _contains_any(message, ["prove", "proof", "proof structure"]) or (
+        theorem_match is not None and _contains_any(message, ["show", "holds"])
+    )
+    wants_verification = _contains_any(
+        message,
+        ["verify", "verification", "check", "holds", "applies", "applicability", "assumptions", "valid"],
+    )
+    wants_formulation = _contains_any(
+        message,
+        ["write the dual", "dual problem", "formulate", "formulation", "show me the dual", "give me the dual"],
+    )
+    wants_only = _contains_any(message, ["only", "no prose", "just"])
+    wants_concise = _contains_any(message, ["shorter", "brief", "concise"])
+
+    math_topics: List[str] = []
+    if theorem_id:
+        math_topics.append(theorem_id)
+    if mentions_primal:
+        math_topics.append("primal")
+    if mentions_dual:
+        math_topics.append("dual")
+    if mentions_strong_duality or theorem_id == "theorem_1":
+        math_topics.append("strong_duality")
+    if mentions_complementary_slackness:
+        math_topics.append("complementary_slackness")
+    if mentions_prices:
+        math_topics.append("node_product_prices")
+    if mentions_negative_bids:
+        math_topics.append("negative_bids")
+    if wants_explanation and mentions_dual:
+        math_topics.append("economic_interpretation")
+    math_topics = list(dict.fromkeys(math_topics))
+
+    task_modes: List[str] = []
+    if wants_formulation:
+        task_modes.append("formulation")
+    if wants_proof:
+        task_modes.append("proof")
+    if wants_verification:
+        task_modes.append("verification")
+    if wants_explanation or not task_modes:
+        task_modes.append("explanation")
+    if mentions_primal and mentions_dual and ("compare" in message or "relationship" in message):
+        task_modes.append("comparison")
+    task_modes = list(dict.fromkeys(task_modes))
+
+    requested_dual_formulation = mentions_dual and wants_formulation
+    requested_primal_formulation = mentions_primal and wants_formulation
+    include_dual_formulation = requested_dual_formulation
+    include_primal_formulation = (
+        requested_primal_formulation or theorem_id == "theorem_1" or "comparison" in task_modes
+    )
+    include_proof_structure = "proof" in task_modes
+    include_economic_interpretation = (
+        "economic_interpretation" in math_topics
+        or "node_product_prices" in math_topics
+        or "complementary_slackness" in math_topics
+    )
+
+    if theorem_id and include_proof_structure:
+        primary_goal = "theorem_proof"
+    elif requested_dual_formulation and include_economic_interpretation:
+        primary_goal = "mixed_dual_interpretation"
+    elif requested_dual_formulation:
+        primary_goal = "dual_formulation"
+    elif requested_primal_formulation:
+        primary_goal = "primal_formulation"
+    elif theorem_id:
+        primary_goal = "theorem_explanation"
+    elif mentions_negative_bids:
+        primary_goal = "section23_explanation"
+    else:
+        primary_goal = "conceptual_explanation"
+
+    response_contract = {
+        "include_dual_formulation": include_dual_formulation,
+        "include_primal_formulation": include_primal_formulation,
+        "include_proof_structure": include_proof_structure,
+        "include_economic_interpretation": include_economic_interpretation,
+        "explain_assumptions": theorem_id is not None,
+        "prefer_latex": "latex" in message or include_dual_formulation or include_proof_structure,
+        "prefer_concise": wants_concise or wants_only,
+        "avoid_full_dual_formulation": mentions_dual and not include_dual_formulation,
+    }
+
+    target_section = None
+    if mentions_negative_bids:
+        target_section = "2.3"
+    elif mentions_dual or theorem_id:
+        target_section = "2.2"
+
+    return {
+        "primary_goal": primary_goal,
+        "task_modes": task_modes,
+        "math_topics": math_topics,
+        "theorem_id": theorem_id,
+        "target_section": target_section,
+        "response_contract": response_contract,
+        "is_supported_request": bool(math_topics or theorem_id or mentions_negative_bids),
+    }
+
+
+def identify_formal_math_request(user_message: str) -> Dict[str, Optional[str]]:
+    """Classify a user request into a supported formal-math request type."""
+
+    plan = plan_formal_math_request(user_message)
+    theorem_id = plan["theorem_id"]
+    response_contract = plan["response_contract"]
+
+    if plan["primary_goal"] == "dual_formulation":
         return {
             "request_type": "dual",
             "theorem_id": theorem_id,
-            "target_section": "2.2",
+            "target_section": plan["target_section"],
         }
-    if theorem_match and any(token in message for token in ("show", "prove", "proof", "holds")):
+    if plan["primary_goal"] == "primal_formulation":
+        return {
+            "request_type": "primal",
+            "theorem_id": theorem_id,
+            "target_section": plan["target_section"],
+        }
+    if plan["primary_goal"] == "theorem_proof":
         return {
             "request_type": "theorem_proof",
             "theorem_id": theorem_id,
-            "target_section": "2.2",
+            "target_section": plan["target_section"],
         }
-    if theorem_match and any(token in message for token in ("apply", "applies", "applicability", "why")):
+    if theorem_id and (
+        "explanation" in plan["task_modes"]
+        or "verification" in plan["task_modes"]
+        or response_contract["explain_assumptions"]
+    ):
         return {
             "request_type": "theorem_explanation",
             "theorem_id": theorem_id,
-            "target_section": "2.2",
+            "target_section": plan["target_section"],
         }
-    if "negative bid" in message or "negative price" in message or "section 2.3" in message:
+    if plan["primary_goal"] == "section23_explanation":
         return {
             "request_type": "section23_explanation",
             "theorem_id": None,
-            "target_section": "2.3",
-        }
-    if "theorem" in message:
-        return {
-            "request_type": "theorem_explanation",
-            "theorem_id": theorem_id,
-            "target_section": "2.2",
+            "target_section": plan["target_section"],
         }
     return {
         "request_type": "general_math_explanation",
         "theorem_id": theorem_id,
-        "target_section": None,
+        "target_section": plan["target_section"],
     }
 
 
@@ -85,6 +217,7 @@ def build_formal_math_context(
 ) -> FormalMathContext:
     """Build a structured context for theorem/proof/dual exposition."""
 
+    semantic_plan = plan_formal_math_request(user_message)
     request_info = identify_formal_math_request(user_message)
     theorem_checks = state.theorem_checks or []
     if not theorem_checks:
@@ -93,11 +226,14 @@ def build_formal_math_context(
         theorem_checks = check_theorems(state)
 
     theorem_check = _resolve_theorem_check(theorem_checks, request_info["theorem_id"])
-    validation = validate_state(state)
     primal_representation = build_primal_representation(state)
     dual_representation = (
         build_dual_scaffold(primal_representation)
-        if request_info["request_type"] == "dual"
+        if (
+            request_info["request_type"] == "dual"
+            or "dual" in semantic_plan["math_topics"]
+            or request_info["request_type"] == "theorem_proof"
+        )
         else None
     )
 
@@ -185,7 +321,9 @@ def build_formal_math_context(
         benchmark_case=benchmark_case,
         supporting_equations=supporting_equations,
         source_notes=source_notes,
-        latex_mode="align" if "latex" in user_message.lower() or request_info["request_type"] == "dual" else "plain",
+        semantic_plan=semantic_plan,
+        problem_state_snapshot=state.dict(),
+        latex_mode="align" if semantic_plan["response_contract"]["prefer_latex"] else "plain",
         pedagogical_mode=pedagogical_mode,
         user_request=user_message,
     )

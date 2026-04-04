@@ -90,6 +90,7 @@ Intent / Task Router
   |- State Manager
   |- Retrieval Module
   |- Validator
+  |- Sampat Reasoning Engine
   |- Model Builder
   |- Solver
   |- Theorem Checker
@@ -123,3 +124,42 @@ Instead it adds the bridge:
 `ProblemState + validator + theorem_checker + primal scaffold -> FormalMathContext -> math_response_generator`
 
 When an LLM is enabled, it is only allowed to polish exposition from the supplied structured context.
+
+---
+
+## 5. Sampat Reasoning Extension
+
+The repository now also includes a lightweight Sampat reasoning layer for broader question handling within the same architectural backbone.
+
+This layer does not replace the deterministic math pipeline.
+
+Instead it adds a reusable bridge from natural-language Sampat questions to grounded artifacts:
+
+`user question -> reasoning plan -> grounded artifacts -> response composition`
+
+The reasoning plan captures:
+
+- object
+- operation
+- grounding mode
+- style
+- scope
+
+The engine can collect artifacts from:
+
+- curated local Sampat domain knowledge
+- the current primal or dual scaffold
+- theorem applicability metadata
+- solver results when solver-backed verification is actually available
+- benchmark-case metadata
+
+The supported grounding distinctions are:
+
+- paper-grounded explanation
+- model-grounded formulation
+- solver-grounded verification
+- theorem-grounded proof
+
+If a requested artifact is unavailable, the engine records what is missing instead of silently improvising.
+
+For narrow theorem, proof, primal, and dual requests, the reasoning engine routes into the existing formal-math path so current behavior is preserved.

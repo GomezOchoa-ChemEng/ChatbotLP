@@ -246,6 +246,22 @@ class TestExplanation:
         assert result["intent"] == "explanation"
         assert result["success"]
 
+    def test_sampat_reasoning_engine_handles_price_interpretation(self):
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "What do node-product prices represent?")
+        assert result["success"]
+        assert result["render_mode"] == "markdown"
+        assert result["sampat_reasoning_package"].response_mode == "paper_grounded_explanation"
+        assert "shadow values" in result["response"].lower() or "marginal" in result["response"].lower()
+
+    def test_sampat_reasoning_engine_handles_case_comparison(self):
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "Compare Case A and Case B.")
+        assert result["success"]
+        assert result["sampat_reasoning_package"].plan.object == "benchmark_case"
+        assert "Case A" in result["response"]
+        assert "Case B" in result["response"]
+
 
 class TestModes:
     """Test different response modes."""
