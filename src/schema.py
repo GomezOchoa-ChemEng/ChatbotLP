@@ -131,6 +131,8 @@ class FormalMathContext(BaseModel):
     profit_definitions: List[Dict[str, Any]] = Field(default_factory=list)
     lagrangian_components: List[Dict[str, Any]] = Field(default_factory=list)
     benchmark_case: Optional[str] = None
+    formulation_scope: str = "generic_family_formulation"
+    concrete_expectations: Dict[str, Any] = Field(default_factory=dict)
     supporting_equations: List[str] = Field(default_factory=list)
     source_notes: List[str] = Field(default_factory=list)
     semantic_plan: Dict[str, Any] = Field(default_factory=dict)

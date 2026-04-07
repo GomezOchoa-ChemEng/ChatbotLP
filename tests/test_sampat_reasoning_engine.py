@@ -98,3 +98,18 @@ def test_reasoning_engine_handles_section_23_as_paper_grounded_interpretation():
     assert package.plan.object == "section23"
     assert package.response_mode == "paper_grounded_explanation"
     assert any("Section 2.3" in line for line in package.answer_outline)
+
+
+def test_reasoning_engine_treats_case_comparison_as_benchmark_comparison():
+    engine = SampatReasoningEngine()
+
+    package = engine.build_reasoning_package(
+        "Compare Case A and Case C in terms of prices, flows, and technologies.",
+        make_state(),
+    )
+
+    assert package.plan.object == "benchmark_case"
+    assert package.plan.operation == "compare"
+    assert any(line.startswith("Intuition:") for line in package.answer_outline)
+    assert any(line.startswith("Mathematical interpretation:") for line in package.answer_outline)
+    assert any(line.startswith("Economic interpretation:") for line in package.answer_outline)

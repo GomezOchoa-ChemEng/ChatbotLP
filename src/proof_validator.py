@@ -51,6 +51,44 @@ def empty_validation_result() -> ValidationResult:
     return {"fatal": [], "warnings": []}
 
 
+def _response_mentions_any(response_text: str, tokens: List[str]) -> bool:
+    normalized = response_text.replace(" ", "")
+    for token in tokens:
+        if not token:
+            continue
+        compact = str(token).replace(" ", "")
+        if compact and compact in normalized:
+            return True
+    return False
+
+
+def _instance_specific_requirements(
+    context: FormalMathContext,
+    response_text: str,
+    warnings: List[str],
+) -> None:
+    if context.formulation_scope != "instantiated_current_formulation":
+        return
+
+    expectations = context.concrete_expectations or {}
+    primal_symbols = expectations.get("primal_symbols", [])
+    dual_symbols = expectations.get("dual_symbols", [])
+    numeric_literals = [
+        token for token in expectations.get("numeric_literals", [])
+        if token not in {"0", "0.0"}
+    ]
+
+    if context.request_type in {"primal", "theorem_proof"} and primal_symbols:
+        if not _response_mentions_any(response_text, primal_symbols):
+            warnings.append("Instance-specific response should preserve concrete primal variable symbols from the current scaffold.")
+    if context.request_type in {"dual", "theorem_proof"} and dual_symbols:
+        if not _response_mentions_any(response_text, dual_symbols):
+            warnings.append("Instance-specific response should preserve concrete dual variable symbols from the current scaffold.")
+    if context.request_type in {"primal", "dual", "theorem_proof"} and numeric_literals:
+        if not _response_mentions_any(response_text, numeric_literals):
+            warnings.append("Instance-specific response should preserve concrete coefficients or values from the current scaffold.")
+
+
 def _finalize_validation(
     warnings: List[str],
     fatal: List[str] | None = None,
@@ -93,6 +131,11 @@ def validate_formal_math_context(context: FormalMathContext) -> ValidationResult
     for symbol in required_symbols:
         if symbol not in variable_symbols and symbol not in dual_symbols:
             warnings.append(f"Required notation symbol missing from notation profile: {symbol}")
+
+    if context.formulation_scope == "instantiated_current_formulation":
+        expectations = context.concrete_expectations or {}
+        if not expectations.get("primal_symbols"):
+            warnings.append("Instance-specific formulation requested, but the current scaffold has no concrete primal symbols.")
 
     fatal = warnings if not context_is_structurally_usable(context) else []
     remaining_warnings = [] if fatal else warnings
@@ -203,6 +246,7 @@ def validate_generated_math_response(
                 warnings.append("Dual response packs multiple inequalities into a single row.")
         else:
             warnings.append("Dual response should include at least one display-math block.")
+        _instance_specific_requirements(context, response_text, warnings)
 
     if context.request_type == "primal":
         lowered = response_text.lower()
@@ -214,6 +258,7 @@ def validate_generated_math_response(
             warnings.append("Primal response should include the constraint label s.t.")
         if "q_b" not in response_text and "q_{" not in response_text:
             warnings.append("Primal response should include primal decision variables.")
+        _instance_specific_requirements(context, response_text, warnings)
 
     if context.request_type == "theorem_proof":
         if context.applicable is True:
@@ -254,6 +299,7 @@ def validate_generated_math_response(
             lowered = response_text.lower()
             if "cannot certify" not in lowered and "out of scope" not in lowered:
                 warnings.append("Non-applicable proof response did not clearly explain the failure mode.")
+        _instance_specific_requirements(context, response_text, warnings)
 
     if context.request_type == "general_math_explanation":
         lowered = response_text.lower()

@@ -80,7 +80,14 @@ class MathResponseGenerator:
             self.last_metadata = metadata
             return "Formal math request could not be completed:\n- " + "\n- ".join(context_fatal)
 
-        llm_response = self._generate_with_llm(response_kind, context)
+        llm_result = self._generate_with_llm(response_kind, context)
+        if isinstance(llm_result, tuple):
+            llm_response, llm_exception_type = llm_result
+        else:
+            llm_response, llm_exception_type = llm_result, None
+        metadata["llm_exception_type"] = llm_exception_type
+        metadata["raw_llm_output_present"] = bool(llm_response and llm_response.strip())
+        metadata["llm_output_length"] = len((llm_response or "").strip())
         if llm_response:
             llm_response = strip_full_latex_document(llm_response)
             if response_is_structurally_usable(context, llm_response):
@@ -89,26 +96,47 @@ class MathResponseGenerator:
                     if exploration_mode
                     else validate_generated_math_response(context, llm_response)
                 )
-                output_warnings = output_validation["warnings"]
-                if output_warnings:
-                    LOGGER.debug(
-                        "Validation modified LLM math output for %s with issues: %s",
-                        response_kind,
-                        output_warnings,
+                instance_specific_failure = (
+                    context.formulation_scope == "instantiated_current_formulation"
+                    and any(
+                        warning.startswith("Instance-specific response should")
+                        for warning in output_validation["warnings"]
                     )
-                LOGGER.debug("LLM output used for %s", response_kind)
-                combined_warnings = context_warnings + output_warnings
-                metadata["response_source"] = "llm"
-                metadata["validation_warnings"] = list(dict.fromkeys(combined_warnings))
-                final_response = self._append_grounding_note(llm_response, combined_warnings, metadata)
-                self.last_metadata = metadata
-                return final_response
-            LOGGER.debug("Fallback triggered for %s because LLM output was structurally unusable", response_kind)
-            metadata["fallback_triggered"] = True
-            metadata["validation_fatal"] = ["LLM output was structurally unusable."]
+                )
+                if instance_specific_failure:
+                    LOGGER.debug(
+                        "Fallback triggered for %s because LLM output ignored the instantiated scaffold: %s",
+                        response_kind,
+                        output_validation["warnings"],
+                    )
+                    metadata["fallback_triggered"] = True
+                    metadata["fallback_reason"] = "instance_specific_validation_failed"
+                    metadata["validation_fatal"] = list(output_validation["warnings"])
+                else:
+                    output_warnings = output_validation["warnings"]
+                    if output_warnings:
+                        LOGGER.debug(
+                            "Validation modified LLM math output for %s with issues: %s",
+                            response_kind,
+                            output_warnings,
+                        )
+                    LOGGER.debug("LLM output used for %s", response_kind)
+                    combined_warnings = context_warnings + output_warnings
+                    metadata["response_source"] = "llm"
+                    metadata["validation_warnings"] = list(dict.fromkeys(combined_warnings))
+                    final_response = self._append_grounding_note(llm_response, combined_warnings, metadata)
+                    self.last_metadata = metadata
+                    return final_response
+            else:
+                LOGGER.debug("Fallback triggered for %s because LLM output was structurally unusable", response_kind)
+                metadata["fallback_triggered"] = True
+                metadata["fallback_reason"] = "structurally_unusable_llm_output"
+                if not metadata["validation_fatal"]:
+                    metadata["validation_fatal"] = ["LLM output was structurally unusable."]
         elif self.use_llm:
             LOGGER.debug("Fallback triggered for %s because LLM output was empty or unavailable", response_kind)
             metadata["fallback_triggered"] = True
+            metadata["fallback_reason"] = "llm_exception" if llm_exception_type else "empty_llm_output"
             metadata["validation_fatal"] = ["LLM output was empty or unavailable."]
 
         deterministic_response = strip_full_latex_document(
@@ -136,9 +164,9 @@ class MathResponseGenerator:
         self,
         response_kind: str,
         context: FormalMathContext,
-    ) -> Optional[str]:
+    ) -> Tuple[Optional[str], Optional[str]]:
         if not self.use_llm:
-            return None
+            return None, None
 
         try:
             from .llm_adapter import LLMProviderRegistry
@@ -154,10 +182,10 @@ class MathResponseGenerator:
             }
             response = explanation_generator.generate("full", prompt_context)
             if response and response.strip():
-                return response
-        except Exception:
-            return None
-        return None
+                return response, None
+        except Exception as exc:
+            return None, exc.__class__.__name__
+        return None, None
 
     def _generate_without_llm(
         self,
@@ -182,6 +210,8 @@ class MathResponseGenerator:
         return {
             "user_request": context.user_request,
             "request_type": context.request_type,
+            "formulation_scope": context.formulation_scope,
+            "concrete_expectations": context.concrete_expectations,
             "semantic_plan": context.semantic_plan,
             "target_section": context.target_section,
             "theorem_id": context.theorem_id,
@@ -238,6 +268,16 @@ class MathResponseGenerator:
             constraints.append("use display equations where they improve clarity")
         if response_contract.get("prefer_concise"):
             constraints.append("be concise and avoid unnecessary exposition")
+        if context.formulation_scope == "instantiated_current_formulation":
+            constraints.extend(
+                [
+                    "use the instantiated current model, not the generic family-level Sampat formulation",
+                    "preserve concrete variable names, dual names, and numeric coefficients when available",
+                    "do not replace concrete coefficients with generic symbols unless the user explicitly asks for the family-level symbolic form",
+                ]
+            )
+        else:
+            constraints.append("use the general family-level symbolic Sampat formulation only if the user explicitly asked for it")
 
         if response_kind == "primal":
             constraints.extend(
@@ -295,6 +335,10 @@ class MathResponseGenerator:
         return {
             "response_source": "deterministic",
             "fallback_triggered": False,
+            "raw_llm_output_present": False,
+            "llm_output_length": 0,
+            "fallback_reason": None,
+            "llm_exception_type": None,
             "grounding_warning_applied": False,
             "validation_warnings": [],
             "validation_fatal": [],
@@ -312,6 +356,36 @@ class MathResponseGenerator:
         for issue in unique_issues:
             note_lines.append(f"- {issue}")
         return response_text.rstrip() + "\n\n" + "\n".join(note_lines)
+
+    def _instance_data_lines(self, context: FormalMathContext) -> List[str]:
+        if context.formulation_scope != "instantiated_current_formulation":
+            return []
+
+        state = self._rebuild_state(context)
+        price_bits = [
+            f"{bid.id}: price {bid.price:.6g}"
+            + (f", quantity {bid.quantity:.6g}" if bid.quantity is not None else "")
+            for bid in state.bids
+        ]
+        tech_bits = [
+            f"{tech.id}: "
+            + ", ".join(f"{product} -> {coeff:.6g}" for product, coeff in tech.yield_coefficients.items())
+            for tech in state.technologies
+            if tech.yield_coefficients
+        ]
+
+        lines = ["Current instance data:"]
+        if price_bits:
+            lines.append("- Bids: " + "; ".join(price_bits))
+        if tech_bits:
+            lines.append("- Technologies: " + "; ".join(tech_bits))
+        return lines
+
+    def _nonnegativity_line(self, context: FormalMathContext) -> str:
+        symbols = [str(variable["symbol"]) for variable in context.variables]
+        if not symbols:
+            return "0 \\ge 0."
+        return ",\\ ".join(symbols) + " \\ge 0."
 
     def _rebuild_state(self, context: FormalMathContext) -> ProblemState:
         snapshot = context.problem_state_snapshot or {}
@@ -435,10 +509,12 @@ class MathResponseGenerator:
         ]
         sign_lines = balance_lines + capacity_lines or ["\\text{none}"]
 
-        return "\n".join(
+        lines = ["The dual problem is formulated as follows:", ""]
+        lines.extend(self._instance_data_lines(context))
+        if len(lines) > 2:
+            lines.append("")
+        lines.extend(
             [
-                "The dual problem is formulated as follows:",
-                "",
                 "$$",
                 "\\begin{aligned}",
                 "(D)\\qquad \\min \\quad & " + objective + " \\\\",
@@ -453,9 +529,13 @@ class MathResponseGenerator:
                 "$$",
             ]
         )
+        return "\n".join(lines)
 
     def _deterministic_primal(self, context: FormalMathContext) -> str:
         lines = ["The primal problem is formulated as follows:", ""]
+        lines.extend(self._instance_data_lines(context))
+        if len(lines) > 2:
+            lines.append("")
         lines.extend(self._theorem_1_primal_block(context))
         return "\n".join(lines)
 
@@ -485,7 +565,7 @@ class MathResponseGenerator:
                 if remaining_constraint_lines
                 else []
             ),
-            "& q_b,\\ f_{ij},\\ x_k \\ge 0.",
+            "& " + self._nonnegativity_line(context),
             "\\end{aligned}",
             "$$",
         ]
@@ -615,6 +695,9 @@ class MathResponseGenerator:
             statement,
             "",
         ]
+        lines.extend(self._instance_data_lines(context))
+        if len(lines) > 3:
+            lines.append("")
         lines.extend(self._theorem_1_primal_block(context))
         lines.append("")
         lines.extend(self._theorem_1_dual_block(dual, context))

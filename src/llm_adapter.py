@@ -229,7 +229,15 @@ class GeminiExplanationGenerator(ExplanationGenerator):
                 "Add real explanatory value beyond the deterministic scaffold.\n"
                 "Use the deterministic artifacts as authority, but add concise economic interpretation and synthesis instead of repeating the scaffold verbatim.\n"
                 "Do not merely restate the supplied outline.\n"
-                "For explanation requests, avoid dumping the full dual or primal unless the package explicitly calls for it."
+                "For explanation requests, avoid dumping the full dual or primal unless the package explicitly calls for it.\n"
+                "When helpful, mention concrete current-case symbols, prices, capacities, flows, or technology yields from the structured artifacts."
+            )
+        elif context_type == "explanation":
+            extra_instruction = (
+                "This is an explanation request.\n"
+                "Lead with intuition, then mathematical meaning, then economic interpretation.\n"
+                "Prefer the current structured instance over a generic state summary.\n"
+                "Mention concrete current-case values when they materially help the explanation."
             )
 
         return f"""
@@ -583,6 +591,20 @@ def get_active_provider_debug_info() -> str:
     if model_name:
         return f"Active provider: {provider_name}; active model: {model_name}"
     return f"Active provider: {provider_name}; active model: deterministic fallback / n/a"
+
+
+def get_response_metadata_debug_info(metadata: Dict[str, Any]) -> str:
+    """Return a short notebook-friendly summary of response metadata."""
+
+    keys = [
+        "response_source",
+        "raw_llm_output_present",
+        "llm_output_length",
+        "fallback_reason",
+        "grounding_mode",
+    ]
+    rendered = [f"{key}={metadata.get(key)}" for key in keys]
+    return "; ".join(rendered)
 
 
 def print_active_provider_debug_info() -> str:

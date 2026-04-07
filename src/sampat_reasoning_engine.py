@@ -51,6 +51,9 @@ class SampatReasoningEngine:
         "dual variable",
         "shadow price",
         "economic interpretation",
+        "primal and dual interpretation",
+        "flows",
+        "x_k",
         "from the paper",
     ]
 
@@ -188,6 +191,7 @@ class SampatReasoningEngine:
             return response, MathResponseGenerator.infer_render_mode(formal_context), metadata
 
         if use_llm:
+            llm_response = None
             try:
                 from .llm_adapter import LLMProviderRegistry
 
@@ -206,6 +210,10 @@ class SampatReasoningEngine:
                     metadata = {
                         "response_source": "llm",
                         "fallback_triggered": False,
+                        "raw_llm_output_present": True,
+                        "llm_output_length": len(llm_response.strip()),
+                        "fallback_reason": None,
+                        "llm_exception_type": None,
                         "grounding_warning_applied": bool(package.missing_artifacts),
                         "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
                         "validation_fatal": [],
@@ -230,8 +238,33 @@ class SampatReasoningEngine:
                             metadata,
                         )
                     return llm_response.strip(), "markdown", metadata
-            except Exception:
-                pass
+            except Exception as exc:
+                return "\n\n".join(line for line in [self._grounding_label(package.response_mode), *package.answer_outline, "", package.missing_information_text or ""] if line), "markdown", {
+                    "response_source": "deterministic",
+                    "fallback_triggered": True,
+                    "raw_llm_output_present": bool(llm_response and llm_response.strip()),
+                    "llm_output_length": len((llm_response or "").strip()),
+                    "fallback_reason": "llm_exception",
+                    "llm_exception_type": exc.__class__.__name__,
+                    "grounding_warning_applied": bool(package.missing_artifacts),
+                    "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
+                    "validation_fatal": [str(exc)],
+                    "mode_used": pedagogical_mode,
+                    "grounding_mode": package.plan.grounding_mode,
+                }
+            return "\n\n".join(line for line in [self._grounding_label(package.response_mode), *package.answer_outline, "", package.missing_information_text or ""] if line), "markdown", {
+                "response_source": "deterministic",
+                "fallback_triggered": True,
+                "raw_llm_output_present": bool(llm_response and llm_response.strip()),
+                "llm_output_length": len((llm_response or "").strip()),
+                "fallback_reason": "empty_llm_output",
+                "llm_exception_type": None,
+                "grounding_warning_applied": bool(package.missing_artifacts),
+                "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
+                "validation_fatal": ["LLM output was empty or unavailable."],
+                "mode_used": pedagogical_mode,
+                "grounding_mode": package.plan.grounding_mode,
+            }
 
         lines = [
             self._grounding_label(package.response_mode),
@@ -242,7 +275,11 @@ class SampatReasoningEngine:
             lines.append(package.missing_information_text)
         return "\n\n".join(line for line in lines if line), "markdown", {
             "response_source": "deterministic",
-            "fallback_triggered": use_llm,
+            "fallback_triggered": False,
+            "raw_llm_output_present": False,
+            "llm_output_length": 0,
+            "fallback_reason": None,
+            "llm_exception_type": None,
             "grounding_warning_applied": bool(package.missing_artifacts),
             "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
             "validation_fatal": [],
@@ -253,7 +290,9 @@ class SampatReasoningEngine:
     def _infer_plan(self, user_query: str) -> SampatReasoningPlan:
         text = user_query.lower()
 
-        if "section 2.3" in text:
+        if "compare" in text and any(token in text for token in ["case a", "case b", "case c", "benchmark"]):
+            obj = "benchmark_case"
+        elif "section 2.3" in text:
             obj = "section23"
         elif "theorem" in text or "proof" in text or "strong duality" in text:
             obj = "theorem"
@@ -523,26 +562,30 @@ class SampatReasoningEngine:
         lines: List[str] = []
 
         if plan.object == "prices":
+            lines.append("Intuition: node-product prices summarize local scarcity in the coordinated clearing system.")
             lines.append(
-                "Node-product prices are the shadow values on the node-product balance equations, so they measure the marginal system value of one more unit of product at a node."
+                "Mathematical interpretation: node-product prices are the shadow values on the node-product balance equations, so they measure the marginal system value of one more unit of product at a node."
             )
             if plan.scope == "section_23":
-                lines.append(SECTION23_CONCEPTS["negative_prices"])
+                lines.append(f"Economic interpretation: {SECTION23_CONCEPTS['negative_prices']}")
             dual = artifact_map.get("dual_scaffold")
             if dual is not None:
                 lines.append(
-                    f"The current model-grounded dual scaffold is available, so this interpretation is tied to {len(dual.data.get('dual_variables', []))} explicit dual variable(s)."
+                    f"The current model-grounded dual scaffold ties that interpretation to {len(dual.data.get('dual_variables', []))} explicit dual variable(s)."
                 )
 
         elif plan.object == "bids":
-            lines.append(SECTION23_CONCEPTS["negative_bids"])
+            lines.append(f"Intuition: {SECTION23_CONCEPTS['negative_bids']}")
             lines.append(
-                "In Sampat Section 2.3, negative bids change the economic interpretation from simple supply cost to willingness to pay for disposal, remediation, storage, or related service."
+                "Mathematical interpretation: allowing negative bids changes the sign pattern of accepted-bid contributions without changing the coordinated clearing structure."
+            )
+            lines.append(
+                "Economic interpretation: in Sampat Section 2.3, negative bids can represent disposal, remediation, storage, or related service value rather than ordinary supply cost."
             )
 
         elif plan.object == "technologies":
             lines.append(
-                "Technologies affect prices by linking products through yield coefficients, so one technology activity can create scarcity relief for some products while consuming others."
+                "Intuition: technologies affect prices by linking products through yield coefficients, so one activity can relieve scarcity for some products while consuming others."
             )
             primal = artifact_map.get("primal_scaffold")
             if primal is not None:
@@ -552,30 +595,33 @@ class SampatReasoningEngine:
                     if variable.get("variable_class") == "technology_activity"
                 ]
                 lines.append(
-                    f"The current primal scaffold includes {len(tech_variables)} technology activity variable(s), which is the model-grounded channel through which yield coefficients affect balances and prices."
+                    f"Mathematical interpretation: the current primal scaffold includes {len(tech_variables)} technology activity variable(s), which is the explicit channel through which yield coefficients enter node-product balances and therefore the dual prices."
                 )
+            lines.append(
+                "Economic interpretation: transformation changes prices because the value of one product now depends on what the technology can convert it into elsewhere in the same coordinated system."
+            )
 
         elif plan.object == "benchmark_case":
             benchmark = artifact_map.get("benchmark_metadata")
             current_case = benchmark.data.get("case_family") if benchmark is not None else "unknown"
             lines.append(
-                "Case A is the no-transformation benchmark, Case B keeps the same clearing structure but allows negative bids, and Case C adds transformation technologies with explicit yield coefficients."
+                "Intuition: Case A is the no-transformation benchmark, Case B keeps the same clearing structure but allows negative bids, and Case C adds transformation technologies with explicit yield coefficients."
             )
             lines.append(
-                "In economic terms, Case B changes how bids and prices should be interpreted because some accepted activities can represent disposal or remediation value rather than ordinary supply cost, while Case C changes prices by coupling products through technology yields."
+                "Mathematical interpretation: Case B changes sign patterns in accepted-bid terms and dual-price interpretation, while Case C changes the balance equations and reduced-cost conditions by adding technology variables and yield coefficients."
             )
             lines.append(
-                "So a Case A versus Case B comparison should focus on bid sign conventions and price interpretation, whereas a Case A versus Case C comparison should focus on how technology activity reshapes scarcity across products."
+                "Economic interpretation: a Case A versus Case B comparison should focus on bid sign conventions and price meaning, whereas a Case A versus Case C comparison should focus on how technology activity reshapes scarcity, flows, and prices across products."
             )
             lines.append(f"The current state is closest to {current_case}.")
 
         elif plan.object == "section23":
             lines.append(
-                "Section 2.3 changes the interpretation of bids and prices by allowing economically meaningful negative bids and negative prices in the coordinated clearing framework."
+                "Intuition: Section 2.3 changes the interpretation of bids and prices by allowing economically meaningful negative bids and negative prices in the coordinated clearing framework."
             )
-            lines.append(SECTION23_CONCEPTS["negative_bids"])
+            lines.append(f"Mathematical interpretation: {SECTION23_CONCEPTS['negative_bids']}")
             lines.append(
-                "That means prices should not be read only as ordinary purchase prices; they can also encode disposal, remediation, storage, or value-of-service effects when the benchmark data supports those mechanisms."
+                "Economic interpretation: prices should not be read only as ordinary purchase prices; they can also encode disposal, remediation, storage, or value-of-service effects when the benchmark data supports those mechanisms."
             )
 
         elif plan.object == "theorem":

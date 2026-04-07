@@ -97,6 +97,8 @@ class ResponseGenerator:
         scenario_summary = self._get_scenario_summary(context)
         if scenario_summary:
             return scenario_summary
+        if context.get("type") == "explanation":
+            return self._generate_explanation_summary(context, detailed=False)
 
         response_parts = []
 
@@ -180,6 +182,8 @@ class ResponseGenerator:
         scenario_summary = self._get_scenario_summary(context)
         if scenario_summary:
             return scenario_summary
+        if context.get("type") == "explanation":
+            return self._generate_explanation_summary(context, detailed=True)
 
         response_parts = []
 
@@ -257,6 +261,35 @@ class ResponseGenerator:
 
         return "Full Solution:\n" + "\n".join(response_parts)
 
+    def _generate_explanation_summary(self, context: Dict[str, Any], detailed: bool) -> str:
+        problem_state = context.get("problem_state")
+        validation = self._get_validation(context)
+
+        if not problem_state:
+            return "Explanation: the current request is interpretive, but no structured problem state is available yet."
+
+        lines = [
+            "Intuition: the current coordinated clearing model links bids, flows, and technologies through node-product balance conditions.",
+            (
+                f"Mathematical interpretation: the current state has {len(problem_state.nodes)} node(s), {len(problem_state.products)} product(s), "
+                f"and {len(problem_state.bids)} bid(s), so any explanation should be tied to that specific instance rather than a generic state dump."
+            ),
+        ]
+        if detailed:
+            if problem_state.technologies:
+                lines.append(
+                    "Economic interpretation: technologies can couple products through yields, while accepted bids and flows reveal which activities are valuable or scarce."
+                )
+            else:
+                lines.append(
+                    "Economic interpretation: accepted bids and any transport activity reveal which goods are valuable or scarce in the current coordinated system."
+                )
+        if validation:
+            readiness = "solver-ready" if validation.get("solver_ready") else "not yet solver-ready"
+            lines.append(f"Current status: the structured state is {readiness}.")
+
+        return "\n".join(lines)
+
 
 def _infer_grounding_mode(context: Dict[str, Any]) -> str:
     response_mode = str(context.get("response_mode", "") or "")
@@ -273,16 +306,26 @@ def _build_response_metadata(
     *,
     response_source: str,
     fallback_triggered: bool,
+    raw_llm_output_present: bool,
+    llm_output_length: int,
+    fallback_reason: str | None,
+    llm_exception_type: str | None,
     grounding_warning_applied: bool,
     validation_warnings: list[str],
+    validation_fatal: list[str],
     mode_used: str,
     grounding_mode: str,
 ) -> Dict[str, Any]:
     return {
         "response_source": response_source,
         "fallback_triggered": fallback_triggered,
+        "raw_llm_output_present": raw_llm_output_present,
+        "llm_output_length": llm_output_length,
+        "fallback_reason": fallback_reason,
+        "llm_exception_type": llm_exception_type,
         "grounding_warning_applied": grounding_warning_applied,
         "validation_warnings": list(dict.fromkeys(validation_warnings)),
+        "validation_fatal": list(dict.fromkeys(validation_fatal)),
         "mode_used": mode_used,
         "grounding_mode": grounding_mode,
     }
@@ -342,6 +385,7 @@ def generate_response_with_metadata(
     validation = context.get("validation_result", {}) or {}
     validation_warnings = list(validation.get("warnings", []))
     if use_llm:
+        llm_response = None
         try:
             from .llm_adapter import LLMProviderRegistry
 
@@ -362,20 +406,56 @@ def generate_response_with_metadata(
                 return response_text, _build_response_metadata(
                     response_source="llm",
                     fallback_triggered=False,
+                    raw_llm_output_present=True,
+                    llm_output_length=len(llm_response.strip()),
+                    fallback_reason=None,
+                    llm_exception_type=None,
                     grounding_warning_applied=bool(validation_warnings),
                     validation_warnings=validation_warnings,
+                    validation_fatal=[],
                     mode_used=mode,
                     grounding_mode=grounding_mode,
                 )
             LOGGER.debug("Fallback triggered because LLM returned an empty response")
+            return reference_response, _build_response_metadata(
+                response_source="deterministic",
+                fallback_triggered=True,
+                raw_llm_output_present=bool(llm_response),
+                llm_output_length=len((llm_response or "").strip()),
+                fallback_reason="empty_llm_output",
+                llm_exception_type=None,
+                grounding_warning_applied=False,
+                validation_warnings=validation_warnings,
+                validation_fatal=["LLM output was empty or unavailable."],
+                mode_used=mode,
+                grounding_mode=grounding_mode,
+            )
         except Exception as exc:
             LOGGER.debug("Fallback triggered because LLM generation failed: %s", exc)
+            return reference_response, _build_response_metadata(
+                response_source="deterministic",
+                fallback_triggered=True,
+                raw_llm_output_present=bool(llm_response and llm_response.strip()),
+                llm_output_length=len((llm_response or "").strip()),
+                fallback_reason="llm_exception",
+                llm_exception_type=exc.__class__.__name__,
+                grounding_warning_applied=False,
+                validation_warnings=validation_warnings,
+                validation_fatal=[str(exc)],
+                mode_used=mode,
+                grounding_mode=grounding_mode,
+            )
 
     return reference_response, _build_response_metadata(
         response_source="deterministic",
-        fallback_triggered=use_llm,
+        fallback_triggered=False,
+        raw_llm_output_present=False,
+        llm_output_length=0,
+        fallback_reason=None,
+        llm_exception_type=None,
         grounding_warning_applied=False,
         validation_warnings=validation_warnings,
+        validation_fatal=[],
         mode_used=mode,
         grounding_mode=grounding_mode,
     )

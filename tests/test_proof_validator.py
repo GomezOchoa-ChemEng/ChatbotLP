@@ -121,3 +121,24 @@ def test_validate_generated_math_response_flags_missing_proof_environment():
     context = build_formal_math_context(make_state(), "Show me that Theorem 1 holds.")
     validation = validate_generated_math_response(context, "Theorem 1 applies.")
     assert validation["warnings"]
+
+
+def test_validate_generated_math_response_flags_generic_dual_for_current_instance_prompt():
+    context = build_formal_math_context(
+        make_state(),
+        "Formulate the current coordinated clearing problem as the dual linear program in LaTeX.",
+    )
+    response = r"""
+The dual problem is formulated as follows:
+
+$$
+\begin{aligned}
+(D)\qquad \min \quad & \sum_{n,p} \pi_{np} + \sum_b \mu_b \\
+\text{s.t.} \quad & \pi_{np} + \mu_b \ge c_b
+\end{aligned}
+$$
+""".strip()
+
+    validation = validate_generated_math_response(context, response)
+    assert any("concrete dual variable symbols" in item for item in validation["warnings"])
+    assert any("concrete coefficients or values" in item for item in validation["warnings"])

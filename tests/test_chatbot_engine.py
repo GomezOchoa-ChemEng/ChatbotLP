@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path.cwd()))
 
@@ -100,6 +101,7 @@ class TestIntentDetection:
             )
             == "scenario"
         )
+        assert router.detect_intent("How do technologies affect prices in Case C?") == "explanation"
 
     def test_explanation_intent(self):
         router = IntentRouter()
@@ -308,7 +310,6 @@ class TestChatbotEngineLLMIntegration:
 
     def test_response_with_llm_in_chatbot(self):
         from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
-        from unittest.mock import Mock
         registry = LLMProviderRegistry.get_instance()
         registry.reset()
 
@@ -323,6 +324,8 @@ class TestChatbotEngineLLMIntegration:
         assert result["response"] == "LLM response"
         assert result["response_metadata"]["response_source"] == "llm"
         assert result["response_metadata"]["fallback_triggered"] is False
+        assert result["response_metadata"]["raw_llm_output_present"] is True
+        assert result["response_metadata"]["fallback_reason"] is None
 
         registry.reset()
 
@@ -354,9 +357,11 @@ class TestExplanation:
         state = make_minimal_state()
         result = run_chatbot_session(state, "Compare Case A and Case B.")
         assert result["success"]
+        assert result["intent"] == "explanation"
         assert result["sampat_reasoning_package"].plan.object == "benchmark_case"
         assert "Case A" in result["response"]
         assert "Case B" in result["response"]
+        assert "Full Solution:" not in result["response"]
 
     def test_section_23_interpretation_is_not_a_dual_dump(self):
         state = make_minimal_state()
@@ -366,6 +371,33 @@ class TestExplanation:
         assert "The dual problem is formulated as follows:" not in result["response"]
         grounded_terms = ["bids", "prices", "negative", "coordinated", "disposal", "remediation", "storage"]
         assert sum(term in result["response"].lower() for term in grounded_terms) >= 3
+
+    def test_case_c_technology_question_routes_to_explanation_not_scenario(self):
+        state = make_case_c_state()
+        result = run_chatbot_session(state, "How do technologies affect prices in Case C?")
+
+        assert result["intent"] == "explanation"
+        assert result["success"]
+        assert result["sampat_reasoning_package"].plan.object == "technologies"
+        assert "Intuition:" in result["response"]
+        assert "Mathematical interpretation:" in result["response"]
+        assert "Economic interpretation:" in result["response"]
+
+    def test_compare_case_a_and_case_c_routes_to_comparison_reasoning_not_theorem_check(self):
+        state = make_case_c_state()
+        result = run_chatbot_session(
+            state,
+            "Compare Case A and Case C in terms of prices, flows, and technologies.",
+        )
+
+        assert result["intent"] == "explanation"
+        assert result["success"]
+        assert result["sampat_reasoning_package"].plan.operation == "compare"
+        assert result["sampat_reasoning_package"].plan.object == "benchmark_case"
+        assert "Intuition:" in result["response"]
+        assert "Mathematical interpretation:" in result["response"]
+        assert "Economic interpretation:" in result["response"]
+        assert "Full Solution:" not in result["response"]
 
 
 class TestModes:
@@ -396,6 +428,60 @@ class TestModes:
         assert result["success"]
         assert len(result["response"]) > 0
         assert result["response_metadata"]["mode_used"] == "exploration"
+
+    def test_exploration_mode_prefers_llm_and_full_mode_omits_reference_when_llm_succeeds(self):
+        from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+
+        registry = LLMProviderRegistry.get_instance()
+        registry.reset()
+        registry.set_provider(
+            RuleBasedProvider(
+                intent_router=Mock(detect_intent=Mock(return_value="explanation")),
+                parse_function=lambda t: {},
+                generate_function=lambda mode, ctx: (
+                    "Intuition: current prices summarize scarcity.\n"
+                    "Mathematical meaning: dual variables support the balance equations.\n"
+                    "Economic interpretation: they coordinate bids and flows."
+                ),
+            )
+        )
+
+        try:
+            exploration = run_chatbot_session(make_minimal_state(), "Explain prices.", mode="exploration", use_llm=True)
+            full = run_chatbot_session(make_minimal_state(), "Explain prices.", mode="full", use_llm=True)
+        finally:
+            registry.reset()
+
+        assert exploration["response_metadata"]["response_source"] == "llm"
+        assert exploration["response_metadata"]["fallback_triggered"] is False
+        assert "LLM Interpretation" in exploration["response"]
+        assert "Model-grounded reference" in exploration["response"]
+        assert "LLM Interpretation" not in full["response"]
+        assert full["response_metadata"]["response_source"] == "llm"
+
+    def test_explanation_llm_empty_output_records_fallback_reason(self):
+        from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
+
+        registry = LLMProviderRegistry.get_instance()
+        registry.reset()
+        registry.set_provider(
+            RuleBasedProvider(
+                intent_router=Mock(detect_intent=Mock(return_value="explanation")),
+                parse_function=lambda t: {},
+                generate_function=lambda mode, ctx: "",
+            )
+        )
+
+        try:
+            result = run_chatbot_session(make_minimal_state(), "Explain the model.", mode="exploration", use_llm=True)
+        finally:
+            registry.reset()
+
+        assert result["response_metadata"]["response_source"] == "deterministic"
+        assert result["response_metadata"]["fallback_triggered"] is True
+        assert result["response_metadata"]["fallback_reason"] == "empty_llm_output"
+        assert result["response_metadata"]["raw_llm_output_present"] is False
+        assert result["response_metadata"]["validation_fatal"]
 
 
 class TestStateUpdates:

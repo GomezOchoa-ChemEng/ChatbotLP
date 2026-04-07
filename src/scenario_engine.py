@@ -130,15 +130,17 @@ def extract_scenario_request(state: ProblemState, user_message: str) -> Dict[str
         for token in [
             "what happens if",
             "how would",
-            "how do",
             "if ",
             "increase",
             "decrease",
+            "drop from",
             "changes from",
             "change from",
+            "set ",
             "unavailable",
             "disable",
             "remove",
+            "reduce",
         ]
     )
     comparison_trigger = any(

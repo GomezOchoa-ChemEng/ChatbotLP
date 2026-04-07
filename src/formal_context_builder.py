@@ -26,6 +26,69 @@ def _contains_any(text: str, tokens: List[str]) -> bool:
     return any(token in text for token in tokens)
 
 
+def _infer_formulation_scope(
+    user_message: str,
+    primal_representation: Dict[str, Any],
+) -> str:
+    message = user_message.lower()
+    explicit_generic_tokens = [
+        "generic family",
+        "family-level",
+        "family level",
+        "general symbolic",
+        "general form",
+        "symbolic sampat",
+        "generic sampat",
+    ]
+    explicit_instance_tokens = [
+        "current coordinated clearing problem",
+        "current problem",
+        "current instance",
+        "this instance",
+        "this case",
+        "current model",
+        "instantiated",
+        "concrete values",
+        "concrete coefficients",
+    ]
+    has_scaffold = bool(primal_representation.get("variables") or primal_representation.get("constraints"))
+
+    if _contains_any(message, explicit_generic_tokens):
+        return "generic_family_formulation"
+    if has_scaffold and _contains_any(message, explicit_instance_tokens):
+        return "instantiated_current_formulation"
+    return "generic_family_formulation"
+
+
+def _collect_concrete_expectations(
+    primal_representation: Dict[str, Any],
+    dual_representation: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    numeric_literals: List[str] = []
+
+    def add_numeric(value: Optional[float]) -> None:
+        if value is None:
+            return
+        rendered = f"{float(value):.6g}"
+        if rendered not in numeric_literals:
+            numeric_literals.append(rendered)
+
+    for term in primal_representation.get("objective", {}).get("terms", []):
+        add_numeric(term.get("coefficient"))
+    for constraint in primal_representation.get("constraints", []):
+        add_numeric(constraint.get("rhs"))
+        for term in constraint.get("lhs_terms", []):
+            add_numeric(term.get("coefficient"))
+
+    return {
+        "primal_symbols": [item["symbol"] for item in primal_representation.get("variables", [])],
+        "dual_symbols": [
+            item["symbol"] for item in (dual_representation or {}).get("dual_variables", [])
+        ],
+        "numeric_literals": numeric_literals,
+    }
+
+
 def plan_formal_math_request(user_message: str) -> Dict[str, Any]:
     """Infer a small semantic plan for flexible formal-math generation."""
 
@@ -227,6 +290,7 @@ def build_formal_math_context(
 
     theorem_check = _resolve_theorem_check(theorem_checks, request_info["theorem_id"])
     primal_representation = build_primal_representation(state)
+    formulation_scope = _infer_formulation_scope(user_message, primal_representation)
     dual_representation = (
         build_dual_scaffold(primal_representation)
         if (
@@ -236,6 +300,7 @@ def build_formal_math_context(
         )
         else None
     )
+    concrete_expectations = _collect_concrete_expectations(primal_representation, dual_representation)
 
     has_negative_bids = any(bid.price < 0 for bid in state.bids)
     benchmark_case = (
@@ -319,6 +384,8 @@ def build_formal_math_context(
             },
         ],
         benchmark_case=benchmark_case,
+        formulation_scope=formulation_scope,
+        concrete_expectations=concrete_expectations,
         supporting_equations=supporting_equations,
         source_notes=source_notes,
         semantic_plan=semantic_plan,

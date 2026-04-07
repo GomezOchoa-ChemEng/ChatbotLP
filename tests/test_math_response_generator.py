@@ -11,7 +11,7 @@ from src.math_response_generator import (
     generate_math_response,
     strip_full_latex_document,
 )
-from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier
+from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier, Technology
 from src.llm_adapter import LLMProviderRegistry, GeminiLLMProvider
 from src.solver import SolveResult
 
@@ -24,6 +24,32 @@ def make_state() -> ProblemState:
     state.add_consumer(Consumer(id="c1", node="n1", product="p1", capacity=10))
     state.add_bid(Bid(id="bs", owner_id="s1", owner_type="supplier", product_id="p1", price=1.0, quantity=10))
     state.add_bid(Bid(id="bc", owner_id="c1", owner_type="consumer", product_id="p1", price=4.0, quantity=10))
+    return state
+
+
+def make_negative_bid_state() -> ProblemState:
+    state = make_state()
+    state.bids[0].price = -5.0
+    return state
+
+
+def make_case_c_state() -> ProblemState:
+    state = ProblemState(problem_title="Case C Math Response Test")
+    state.add_node(Node(id="n1"))
+    state.add_product(Product(id="p1"))
+    state.add_product(Product(id="p2"))
+    state.add_supplier(Supplier(id="s1", node="n1", product="p1", capacity=10))
+    state.add_consumer(Consumer(id="c1", node="n1", product="p2", capacity=8))
+    state.add_bid(Bid(id="B1", owner_id="s1", owner_type="supplier", product_id="p1", price=1.0, quantity=10))
+    state.add_bid(Bid(id="B2", owner_id="c1", owner_type="consumer", product_id="p2", price=9.0, quantity=8))
+    state.add_technology(
+        Technology(
+            id="K1",
+            node="n1",
+            capacity=6,
+            yield_coefficients={"p1": -1.0, "p2": 0.8},
+        )
+    )
     return state
 
 
@@ -79,6 +105,52 @@ def test_primal_generation_without_llm():
     assert "(P)\\qquad \\max" in response
     assert "\\text{s.t.}" in response
     assert "q_{" in response
+
+
+def test_instance_specific_primal_includes_current_case_data_for_case_a():
+    context = build_formal_math_context(
+        make_state(),
+        "Formulate the current coordinated clearing problem as the primal linear program in LaTeX.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert context.formulation_scope == "instantiated_current_formulation"
+    assert "Current instance data:" in response
+    assert "bs: price 1" in response
+    assert "bc: price 4" in response
+    assert "q_{bs}" in response
+    assert "q_{bc}" in response
+    assert "10" in response
+
+
+def test_instance_specific_primal_preserves_negative_bid_value_for_case_b():
+    context = build_formal_math_context(
+        make_negative_bid_state(),
+        "Formulate the current problem as the primal linear program in LaTeX.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert context.formulation_scope == "instantiated_current_formulation"
+    assert "Current instance data:" in response
+    assert "price -5" in response
+    assert "q_{bs}" in response
+
+
+def test_instance_specific_theorem_proof_mentions_case_c_technology_symbols_and_yields():
+    context = build_formal_math_context(
+        make_case_c_state(),
+        "State Theorem 1 and prove it in LaTeX for the current coordinated clearing problem.",
+    )
+    response = generate_math_response(context, use_llm=False)
+
+    assert context.formulation_scope == "instantiated_current_formulation"
+    assert "Current instance data:" in response
+    assert "K1" in response
+    assert "p1 -> -1" in response
+    assert "p2 -> 0.8" in response
+    assert "x_{K1}" in response
+    assert "\\pi_{n1,p1}" in response
+    assert "\\pi_{n1,p2}" in response
 
 
 def test_theorem_generation_without_llm():
@@ -201,6 +273,36 @@ $$
     assert response.rstrip().endswith("$$")
     assert metadata["response_source"] == "deterministic"
     assert metadata["fallback_triggered"] is True
+    assert metadata["fallback_reason"] == "structurally_unusable_llm_output"
+    assert metadata["raw_llm_output_present"] is True
+    assert metadata["llm_output_length"] > 0
+
+
+def test_instance_specific_dual_rejects_generic_family_level_llm_output():
+    context = build_formal_math_context(
+        make_state(),
+        "Formulate the current coordinated clearing problem as the dual linear program in LaTeX.",
+    )
+    generic_dual = r"""
+The dual problem is formulated as follows:
+
+$$
+\begin{aligned}
+(D)\qquad \min \quad & \sum_{n,p} \pi_{np} + \sum_b \mu_b \\
+\text{s.t.} \quad & \pi_{np} + \mu_b \ge c_b
+\end{aligned}
+$$
+""".strip()
+
+    with patch.object(MathResponseGenerator, "_generate_with_llm", return_value=generic_dual):
+        response, metadata = MathResponseGenerator(use_llm=True).generate_with_metadata(context)
+
+    assert "\\pi_{n1,p1}" in response
+    assert "\\mu_{bs}" in response
+    assert metadata["response_source"] == "deterministic"
+    assert metadata["fallback_triggered"] is True
+    assert metadata["validation_fatal"]
+    assert metadata["fallback_reason"] == "instance_specific_validation_failed"
 
 
 def test_dual_generation_keeps_llm_output_when_only_minor_grounding_warnings_exist():

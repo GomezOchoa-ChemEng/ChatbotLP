@@ -47,6 +47,10 @@ def _default_response_metadata(mode: str, grounding_mode: str = "paper") -> Dict
     return {
         "response_source": "deterministic",
         "fallback_triggered": False,
+        "raw_llm_output_present": False,
+        "llm_output_length": 0,
+        "fallback_reason": None,
+        "llm_exception_type": None,
         "grounding_warning_applied": False,
         "validation_warnings": [],
         "validation_fatal": [],
@@ -89,6 +93,23 @@ class IntentRouter:
         """Detect the primary intent from user text."""
         if self._looks_like_solver_grounded_scenario(text):
             return "scenario"
+        if self._looks_like_explanation_or_comparison(text):
+            formal_request = identify_formal_math_request(text)
+            lowered = text.lower()
+            math_interpretation_tokens = [
+                "dual variable",
+                "dual variables",
+                "dual problem",
+                "primal",
+                "section 2.3",
+                "strong duality",
+                "complementary slackness",
+            ]
+            if formal_request["request_type"] != "general_math_explanation" or any(
+                token in lowered for token in math_interpretation_tokens
+            ):
+                return "formal_math"
+            return "explanation"
         for intent, pattern in self.intent_patterns:
             if pattern.search(text):
                 return intent
@@ -99,15 +120,17 @@ class IntentRouter:
         scenario_markers = [
             "what happens if",
             "how would",
-            "how do",
             "if ",
             "increase",
             "decrease",
+            "drop from",
             "change from",
             "changes from",
+            "set ",
             "unavailable",
             "disable",
             "remove",
+            "reduce",
         ]
         parameter_markers = [
             "capacity",
@@ -143,6 +166,24 @@ class IntentRouter:
             any(marker in lowered for marker in scenario_markers)
             and any(marker in lowered for marker in parameter_markers)
             and any(marker in lowered for marker in outcome_markers)
+        )
+
+    def _looks_like_explanation_or_comparison(self, text: str) -> bool:
+        lowered = text.lower()
+        explanation_tokens = [
+            "explain",
+            "how do",
+            "how does",
+            "why",
+            "meaning",
+            "interpret",
+            "interpretation",
+            "role",
+            "compare",
+        ]
+        theorem_only_tokens = ["theorem", "proof", "prove", "applicability", "assumption"]
+        return any(token in lowered for token in explanation_tokens) and not any(
+            token in lowered for token in theorem_only_tokens
         )
 
 

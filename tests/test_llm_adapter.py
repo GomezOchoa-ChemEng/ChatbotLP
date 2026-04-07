@@ -34,6 +34,7 @@ from src.llm_adapter import (
     configure_gemini_provider,
     DEFAULT_GEMINI_MODEL,
     get_active_provider_debug_info,
+    get_response_metadata_debug_info,
     print_active_provider_debug_info,
 )
 
@@ -292,6 +293,20 @@ class TestGeminiLLMProvider(unittest.TestCase):
         self.assertIn("RuleBasedProvider", message)
         self.assertIn("deterministic fallback", message)
         mock_print.assert_called_once()
+
+    def test_get_response_metadata_debug_info(self):
+        message = get_response_metadata_debug_info(
+            {
+                "response_source": "llm",
+                "raw_llm_output_present": True,
+                "llm_output_length": 42,
+                "fallback_reason": None,
+                "grounding_mode": "paper",
+            }
+        )
+        self.assertIn("response_source=llm", message)
+        self.assertIn("raw_llm_output_present=True", message)
+        self.assertIn("llm_output_length=42", message)
 
 
 class TestConvenienceFunctions(unittest.TestCase):
