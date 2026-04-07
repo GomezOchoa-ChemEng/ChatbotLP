@@ -43,6 +43,8 @@ def test_chatbot_routes_dual_request():
     assert "(\\text{supplier bid})" not in result["response"]
     assert "balance_" not in result["response"]
     assert "\\documentclass" not in result["response"]
+    assert result["response_metadata"]["response_source"] == "deterministic"
+    assert result["response_metadata"]["grounding_mode"] == "model"
 
 
 def test_chatbot_routes_primal_request():
@@ -62,16 +64,9 @@ def test_chatbot_dual_request_hides_invalid_llm_output_and_validation_notes():
     rejected_response = r"""
 The dual problem is formulated as follows:
 
-Rejected raw response
-
 $$
 \begin{aligned}
 \min \quad & \pi_{n1,p1}
-\end{aligned}
-$$
-
-Validation notes:
-- dual response is missing standard optimization LaTeX structure.
 """.strip()
 
     with patch.object(
@@ -96,12 +91,13 @@ Validation notes:
     assert "\\text{s.t.} \\quad &" not in first_block
     assert first_block.count("\\\\\n& ") == 2
     assert "Validation notes:" not in result["response"]
-    assert "Rejected raw response" not in result["response"]
     assert "\\text{sign restrictions}" not in result["response"]
     assert "(\\text{supplier bid})" not in result["response"]
     assert "balance_" not in result["response"]
     assert "\\mu_{bs}" in result["response"]
     assert "\\nu_{bc}" in result["response"]
+    assert result["response_metadata"]["response_source"] == "deterministic"
+    assert result["response_metadata"]["fallback_triggered"] is True
 
 
 def test_chatbot_routes_theorem_request():
@@ -145,7 +141,8 @@ def test_chatbot_handles_dual_variable_meaning_as_explanation_not_formulation():
     assert result["intent"] == "formal_math"
     assert result["success"]
     assert "The dual problem is formulated as follows:" not in result["response"]
-    assert "price" in result["response"].lower() or "scarcity" in result["response"].lower()
+    grounded_terms = ["price", "scarcity", "shadow", "balance", "bid"]
+    assert sum(term in result["response"].lower() for term in grounded_terms) >= 2
 
 
 def test_chatbot_handles_mixed_dual_and_interpretation_prompt():
@@ -183,3 +180,37 @@ def test_llm_backed_price_explanation_can_add_value_beyond_deterministic_baselin
     assert deterministic["response"] != enriched["response"]
     assert "marginal system value" in enriched["response"]
     assert "scarce" in enriched["response"]
+
+
+def test_exploration_mode_can_return_dual_channel_output():
+    registry = LLMProviderRegistry.get_instance()
+    registry.reset()
+    registry.set_provider(
+        RuleBasedProvider(
+            intent_router=Mock(detect_intent=Mock(return_value="explanation")),
+            parse_function=lambda t: {},
+            generate_function=lambda mode, ctx: (
+                "Intuition: prices summarize local scarcity.\n"
+                "Mathematical meaning: they are shadow values on node-product balances.\n"
+                "Economic interpretation: they coordinate bids and flows in the Sampat framework."
+            ),
+        )
+    )
+
+    try:
+        result = run_chatbot_session(
+            make_state(),
+            "Explain node-product prices in the current coordinated model.",
+            mode="exploration",
+            use_llm=True,
+        )
+    finally:
+        registry.reset()
+
+    assert result["success"]
+    assert "LLM Interpretation" in result["response"]
+    assert "Model-grounded reference" in result["response"]
+    assert "Grounding note" not in result["response"]
+    assert "shadow values" in result["response"].lower()
+    assert result["response_metadata"]["response_source"] == "llm"
+    assert result["response_metadata"]["mode_used"] == "exploration"

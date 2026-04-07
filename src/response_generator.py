@@ -12,7 +12,13 @@ The design is modular to allow easy integration of an LLM for more natural
 language generation in the future.
 """
 
+import logging
 from typing import Dict, Any
+
+from .proof_validator import GROUNDING_WARNING
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ResponseGenerator:
@@ -24,10 +30,10 @@ class ResponseGenerator:
             return self._generate_hint(context)
         elif mode == "guided":
             return self._generate_guided(context)
-        elif mode == "full":
+        elif mode in {"full", "exploration"}:
             return self._generate_full(context)
         else:
-            return "Invalid mode specified. Choose 'hint', 'guided', or 'full'."
+            return "Invalid mode specified. Choose 'hint', 'guided', 'full', or 'exploration'."
 
     def _get_validation(self, context: Dict[str, Any]) -> Dict[str, Any]:
         return context.get("validation_result", context.get("validation", {})) or {}
@@ -252,24 +258,127 @@ class ResponseGenerator:
         return "Full Solution:\n" + "\n".join(response_parts)
 
 
+def _infer_grounding_mode(context: Dict[str, Any]) -> str:
+    response_mode = str(context.get("response_mode", "") or "")
+    if "solver" in response_mode or context.get("type") == "scenario":
+        return "solver"
+    if "theorem" in response_mode or context.get("type") == "theorem_check":
+        return "theorem"
+    if "model" in response_mode or context.get("type") in {"problem_formulation", "solve"}:
+        return "model"
+    return "paper"
+
+
+def _build_response_metadata(
+    *,
+    response_source: str,
+    fallback_triggered: bool,
+    grounding_warning_applied: bool,
+    validation_warnings: list[str],
+    mode_used: str,
+    grounding_mode: str,
+) -> Dict[str, Any]:
+    return {
+        "response_source": response_source,
+        "fallback_triggered": fallback_triggered,
+        "grounding_warning_applied": grounding_warning_applied,
+        "validation_warnings": list(dict.fromkeys(validation_warnings)),
+        "mode_used": mode_used,
+        "grounding_mode": grounding_mode,
+    }
+
+
+def _format_exploration_response(
+    llm_interpretation: str,
+    reference_response: str,
+    validation_warnings: list[str],
+) -> str:
+    sections = [
+        "LLM Interpretation",
+        llm_interpretation.strip(),
+        "",
+        "Model-grounded reference",
+        reference_response.strip(),
+    ]
+    if validation_warnings:
+        sections.extend(
+            [
+                "",
+                "Grounding note",
+                GROUNDING_WARNING,
+            ]
+        )
+    return "\n".join(sections)
+
+
 def generate_response(
     mode: str,
     context: Dict[str, Any],
     use_llm: bool = False,
+    include_reference: bool = False,
 ) -> str:
+    response, _ = generate_response_with_metadata(
+        mode=mode,
+        context=context,
+        use_llm=use_llm,
+        include_reference=include_reference,
+    )
+    return response
+
+
+def generate_response_with_metadata(
+    mode: str,
+    context: Dict[str, Any],
+    use_llm: bool = False,
+    include_reference: bool = False,
+) -> tuple[str, Dict[str, Any]]:
     """Convenience function to generate a response."""
+    generator = ResponseGenerator()
+    reference_response = generator.generate_response(
+        "full" if mode == "exploration" else mode,
+        context,
+    )
+    grounding_mode = _infer_grounding_mode(context)
+    validation = context.get("validation_result", {}) or {}
+    validation_warnings = list(validation.get("warnings", []))
     if use_llm:
         try:
             from .llm_adapter import LLMProviderRegistry
 
             provider = LLMProviderRegistry.get_instance()
             llm_gen = provider.get_explanation_generator()
-            return llm_gen.generate(mode, context)
-        except Exception:
-            pass
+            llm_mode = "hint" if mode == "hint" else "full" if mode in {"full", "exploration"} else "guided"
+            llm_response = llm_gen.generate(llm_mode, context)
+            if llm_response and llm_response.strip():
+                LOGGER.debug("LLM output used for response type %s", context.get("type", "general"))
+                if include_reference:
+                    response_text = _format_exploration_response(
+                        llm_interpretation=llm_response,
+                        reference_response=reference_response,
+                        validation_warnings=validation_warnings,
+                    )
+                else:
+                    response_text = llm_response
+                return response_text, _build_response_metadata(
+                    response_source="llm",
+                    fallback_triggered=False,
+                    grounding_warning_applied=bool(validation_warnings),
+                    validation_warnings=validation_warnings,
+                    mode_used=mode,
+                    grounding_mode=grounding_mode,
+                )
+            LOGGER.debug("Fallback triggered because LLM returned an empty response")
+        except Exception as exc:
+            LOGGER.debug("Fallback triggered because LLM generation failed: %s", exc)
 
-    generator = ResponseGenerator()
-    return generator.generate_response(mode, context)
+    return reference_response, _build_response_metadata(
+        response_source="deterministic",
+        fallback_triggered=use_llm,
+        grounding_warning_applied=False,
+        validation_warnings=validation_warnings,
+        mode_used=mode,
+        grounding_mode=grounding_mode,
+    )
 
 
-__all__ = ["ResponseGenerator", "generate_response"]
+__all__ = ["ResponseGenerator", "generate_response", "generate_response_with_metadata"]

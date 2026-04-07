@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import copy
+import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .dual_generator import build_dual_model, build_dual_scaffold
 from .domain.sampat2019 import SECTION23_CONCEPTS, get_theorem_metadata
 from .model_builder import build_model_from_state
 from .proof_validator import (
+    GROUNDING_WARNING,
+    context_is_structurally_usable,
+    response_is_structurally_usable,
     validate_formal_math_context,
     validate_generated_math_response,
 )
@@ -16,11 +21,15 @@ from .schema import FormalMathContext, ProblemState
 from .solver import solve_model
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 class MathResponseGenerator:
     """Generate theorem, proof, and dual responses from structured context."""
 
     def __init__(self, use_llm: bool = False):
         self.use_llm = use_llm
+        self.last_metadata: Dict[str, Any] = {}
 
     @staticmethod
     def infer_render_mode(context: FormalMathContext) -> str:
@@ -49,25 +58,79 @@ class MathResponseGenerator:
     def generate(self, context: FormalMathContext) -> str:
         return self._generate(context.request_type, context)
 
+    def generate_with_metadata(self, context: FormalMathContext) -> Tuple[str, Dict[str, Any]]:
+        response = self.generate(context)
+        return response, copy.deepcopy(self.last_metadata)
+
     def _generate(self, response_kind: str, context: FormalMathContext) -> str:
-        issues = validate_formal_math_context(context)
-        if issues:
-            return "Formal math request could not be completed:\n- " + "\n- ".join(issues)
+        exploration_mode = context.pedagogical_mode == "exploration"
+        context_validation = validate_formal_math_context(context)
+        context_fatal = context_validation["fatal"]
+        context_warnings = context_validation["warnings"]
+        metadata = self._base_metadata(context)
+        metadata["validation_warnings"] = list(context_warnings)
+        if context_fatal:
+            LOGGER.debug("Formal math context fatal issues detected for %s: %s", response_kind, context_fatal)
+        elif context_warnings:
+            LOGGER.debug("Formal math context warnings detected for %s: %s", response_kind, context_warnings)
+        if context_fatal and not context_is_structurally_usable(context):
+            metadata["fallback_triggered"] = True
+            metadata["validation_fatal"] = list(context_fatal)
+            metadata["response_source"] = "deterministic"
+            self.last_metadata = metadata
+            return "Formal math request could not be completed:\n- " + "\n- ".join(context_fatal)
 
         llm_response = self._generate_with_llm(response_kind, context)
         if llm_response:
             llm_response = strip_full_latex_document(llm_response)
-            output_issues = validate_generated_math_response(context, llm_response)
-            if not output_issues:
-                return llm_response
+            if response_is_structurally_usable(context, llm_response):
+                output_validation = (
+                    {"fatal": [], "warnings": []}
+                    if exploration_mode
+                    else validate_generated_math_response(context, llm_response)
+                )
+                output_warnings = output_validation["warnings"]
+                if output_warnings:
+                    LOGGER.debug(
+                        "Validation modified LLM math output for %s with issues: %s",
+                        response_kind,
+                        output_warnings,
+                    )
+                LOGGER.debug("LLM output used for %s", response_kind)
+                combined_warnings = context_warnings + output_warnings
+                metadata["response_source"] = "llm"
+                metadata["validation_warnings"] = list(dict.fromkeys(combined_warnings))
+                final_response = self._append_grounding_note(llm_response, combined_warnings, metadata)
+                self.last_metadata = metadata
+                return final_response
+            LOGGER.debug("Fallback triggered for %s because LLM output was structurally unusable", response_kind)
+            metadata["fallback_triggered"] = True
+            metadata["validation_fatal"] = ["LLM output was structurally unusable."]
+        elif self.use_llm:
+            LOGGER.debug("Fallback triggered for %s because LLM output was empty or unavailable", response_kind)
+            metadata["fallback_triggered"] = True
+            metadata["validation_fatal"] = ["LLM output was empty or unavailable."]
 
         deterministic_response = strip_full_latex_document(
             self._generate_without_llm(response_kind, context)
         )
-        output_issues = validate_generated_math_response(context, deterministic_response)
-        if output_issues and response_kind != "dual":
-            deterministic_response += "\n\nValidation notes:\n- " + "\n- ".join(output_issues)
-        return deterministic_response
+        output_validation = (
+            {"fatal": [], "warnings": []}
+            if exploration_mode
+            else validate_generated_math_response(context, deterministic_response)
+        )
+        output_warnings = output_validation["warnings"]
+        if output_warnings:
+            LOGGER.debug(
+                "Validation modified deterministic math output for %s with issues: %s",
+                response_kind,
+                output_warnings,
+            )
+        metadata["response_source"] = "deterministic"
+        metadata["validation_warnings"] = list(dict.fromkeys(context_warnings + output_warnings))
+        final_response = self._append_grounding_note(deterministic_response, context_warnings + output_warnings, metadata)
+        self.last_metadata = metadata
+        return final_response
 
     def _generate_with_llm(
         self,
@@ -152,15 +215,19 @@ class MathResponseGenerator:
         plan = context.semantic_plan
         response_contract = plan.get("response_contract", {})
         constraints = [
-            "use only supplied notation",
+            "use the supplied notation and structured model as guidance, not a strict constraint",
             "write in the style of a textbook or research note",
-            "do not invent symbols",
-            "do not claim results not grounded in context",
+            "stay conceptually grounded in the coordinated management interpretation of Sampat et al. (2019), especially the coordinated market and management framework",
+            "keep the Sampat ontology recognizable: bids, transport flows, technologies or transformation, node-product balances, and node-product prices as dual or shadow values",
+            "treat negative bids and negative prices consistently with the Section 2.3 logic",
+            "treat technologies as links across products through yield coefficients",
+            "prefer grounded interpretation over rigid restatement",
+            "avoid inventing solver results or theorem applicability",
             "if assumptions are missing, say so clearly",
             "return a render-ready LaTeX fragment, not a standalone LaTeX document",
             "do not include documentclass, usepackage, begin{document}, or end{document}",
-            "avoid duplicated inline math and do not repeat the same expression in prose and raw LaTeX on the same line",
-            "if the request is out of scope, say so plainly and do not improvise",
+            "allow intuitive explanation, mathematical meaning, and economic interpretation in the same answer when helpful",
+            "if the request is out of scope, say so plainly",
             "do not expose internal metadata labels such as validated_linear_problem_state, assumptions_verified, ProblemState, or raw field names",
             f"follow the semantic plan primary goal: {plan.get('primary_goal', 'unknown')}",
             f"follow the task modes exactly: {', '.join(plan.get('task_modes', [])) or 'none'}",
@@ -183,17 +250,15 @@ class MathResponseGenerator:
         elif response_kind == "dual":
             constraints.extend(
                 [
-                    "for duals, write an optimization model with objective, constraints, and sign restrictions",
-                    "include the exact sentence 'The dual problem is formulated as follows:' exactly once",
-                    "place the dual formulation in exactly two wrapped display-math blocks: the first must be a single aligned block with (D), the objective on its own line, s.t. on its own line, and one inequality per line; the second must contain only sign restrictions",
-                    "do not include inline labels, constraint names, validation notes, or any prose before, between, or after the two display blocks beyond that exact sentence",
+                    "for duals, include a recognizable optimization model with objective, constraints, and sign restrictions",
+                    "you may add brief interpretation after the formulation when it helps the user",
                 ]
             )
         elif response_kind == "theorem_proof":
             constraints.extend(
                 [
                     "for theorem_1, treat the result as a curated strong-duality theorem, not a primal-optimum existence claim",
-                    "explicitly include both the primal problem and the dual problem in clean display blocks",
+                    "when helpful, explicitly include both the primal problem and the dual problem in clean display blocks",
                     "explicitly conclude strong duality and the equality z_P^* = z_D^*",
                     "prefer a polished theorem statement followed by a clear Proof. label rather than theorem or proof environments",
                 ]
@@ -205,6 +270,7 @@ class MathResponseGenerator:
                     "for explanation requests, do not restate a full optimization model unless the response contract explicitly requires it",
                     "separate formulation, proof, and interpretation when more than one is requested",
                     "for explanation requests, add interpretive value beyond the deterministic scaffold instead of merely rephrasing it",
+                    "for explanation requests, include three layers when possible: intuition, mathematical meaning, and economic interpretation in the Sampat coordinated-clearing framework",
                 ]
             )
             if response_contract.get("avoid_full_dual_formulation"):
@@ -217,6 +283,35 @@ class MathResponseGenerator:
                 constraints.append("explain strong duality directly and avoid drifting into a full dual derivation unless explicitly requested")
 
         return constraints
+
+    def _base_metadata(self, context: FormalMathContext) -> Dict[str, Any]:
+        grounding_mode = "paper"
+        if context.request_type in {"dual", "primal"}:
+            grounding_mode = "model"
+        elif context.request_type == "theorem_proof":
+            grounding_mode = "theorem"
+        elif "complementary_slackness" in set(context.semantic_plan.get("math_topics", [])):
+            grounding_mode = "solver"
+        return {
+            "response_source": "deterministic",
+            "fallback_triggered": False,
+            "grounding_warning_applied": False,
+            "validation_warnings": [],
+            "validation_fatal": [],
+            "mode_used": context.pedagogical_mode,
+            "grounding_mode": grounding_mode,
+        }
+
+    def _append_grounding_note(self, response_text: str, issues: List[str], metadata: Dict[str, Any]) -> str:
+        if not issues:
+            metadata["grounding_warning_applied"] = False
+            return response_text
+        metadata["grounding_warning_applied"] = True
+        note_lines = [GROUNDING_WARNING]
+        unique_issues = list(dict.fromkeys(issues))
+        for issue in unique_issues:
+            note_lines.append(f"- {issue}")
+        return response_text.rstrip() + "\n\n" + "\n".join(note_lines)
 
     def _rebuild_state(self, context: FormalMathContext) -> ProblemState:
         snapshot = context.problem_state_snapshot or {}

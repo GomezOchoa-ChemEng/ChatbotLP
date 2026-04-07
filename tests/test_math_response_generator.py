@@ -30,7 +30,7 @@ def make_state() -> ProblemState:
 def test_dual_generation_without_llm():
     state = make_state()
     context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
-    response = generate_math_response(context, use_llm=False)
+    response, metadata = MathResponseGenerator(use_llm=False).generate_with_metadata(context)
     first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", response, flags=re.DOTALL)[0]
     assert "The dual problem is formulated as follows:" in response
     assert response.count("The dual problem is formulated as follows:") == 1
@@ -60,6 +60,10 @@ def test_dual_generation_without_llm():
     assert "\\usepackage" not in response
     assert "\\begin{document}" not in response
     assert "\\end{document}" not in response
+    assert metadata["response_source"] == "deterministic"
+    assert metadata["fallback_triggered"] is False
+    assert metadata["mode_used"] == "guided"
+    assert metadata["grounding_mode"] == "model"
 
 
 def test_primal_generation_without_llm():
@@ -170,17 +174,6 @@ The dual problem is formulated as follows:
 $$
 \begin{aligned}
 \min \quad & \pi_{n1,p1}
-\end{aligned}
-$$
-
-Validation notes:
-- bad llm output
-
-$$
-\begin{aligned}
-\min \quad & malformed duplicate
-\end{aligned}
-$$
 """.strip()
 
     with patch.object(
@@ -188,7 +181,7 @@ $$
         "_generate_with_llm",
         return_value=rejected_response,
     ):
-        response = generate_math_response(context, use_llm=True)
+        response, metadata = MathResponseGenerator(use_llm=True).generate_with_metadata(context)
     first_block = re.findall(r"\$\$\s*(.*?)\s*\$\$", response, flags=re.DOTALL)[0]
 
     assert response.count("The dual problem is formulated as follows:") == 1
@@ -200,13 +193,62 @@ $$
     assert first_block.count("\\\\\n& ") == 2
     assert "Validation notes:" not in response
     assert "bad llm output" not in response
-    assert "malformed duplicate" not in response
     assert "\\text{sign restrictions}" not in response
     assert "(\\text{supplier bid})" not in response
     assert "balance_" not in response
     assert "\\mu_{bs}" in response
     assert "\\nu_{bc}" in response
     assert response.rstrip().endswith("$$")
+    assert metadata["response_source"] == "deterministic"
+    assert metadata["fallback_triggered"] is True
+
+
+def test_dual_generation_keeps_llm_output_when_only_minor_grounding_warnings_exist():
+    state = make_state()
+    context = build_formal_math_context(state, "Give me the dual problem in LaTeX.")
+    llm_response = r"""
+The dual problem is formulated as follows:
+
+$$
+\begin{aligned}
+(D)\qquad \min \quad & 6 \pi_{n1,p1} + 6 \mu_{bs} \\
+\text{s.t.} \quad & \pi_{n1,p1} + \mu_{bs} \ge 1 \\
+& \pi_{n1,p1} \ge 2
+\end{aligned}
+$$
+
+This dual says the node-product price coordinates supplier and consumer acceptance.
+""".strip()
+
+    with patch.object(
+        MathResponseGenerator,
+        "_generate_with_llm",
+        return_value=llm_response,
+    ):
+        response, metadata = MathResponseGenerator(use_llm=True).generate_with_metadata(context)
+
+    assert "node-product price coordinates supplier and consumer acceptance" in response
+    assert "This response may not be fully grounded in the deterministic model." in response
+    assert response.count("The dual problem is formulated as follows:") == 1
+    assert metadata["response_source"] == "llm"
+    assert metadata["fallback_triggered"] is False
+    assert metadata["grounding_warning_applied"] is True
+    assert metadata["validation_warnings"]
+
+
+def test_explanation_metadata_uses_solver_grounding_for_complementary_slackness():
+    state = make_state()
+    context = build_formal_math_context(
+        state,
+        "Verify the complementary slackness conditions for the current primal-dual pair and explain their economic interpretation.",
+    )
+    primal_result = SolveResult(object(), "optimal", "mock primal", 30.0, 0.01, {"q": {"bs": 10.0, "bc": 10.0}, "f": {}, "x": {}}, True)
+    dual_result = SolveResult(object(), "optimal", "mock dual", 30.0, 0.01, {"y": {"\\pi_{n1,p1}": -1.0, "\\mu_{bs}": 0.0, "\\nu_{bc}": 3.0}}, True)
+
+    with patch("src.math_response_generator.solve_model", side_effect=[primal_result, dual_result]):
+        _, metadata = MathResponseGenerator(use_llm=False).generate_with_metadata(context)
+
+    assert metadata["grounding_mode"] == "solver"
 
 
 def test_strip_full_latex_document_normalizes_notebook_fragment_artifacts():

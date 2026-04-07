@@ -13,6 +13,7 @@ and the current problem state and returns an updated state plus a
 user-facing response.
 """
 
+import logging
 import re
 from typing import Dict, Any
 
@@ -27,16 +28,31 @@ from .scenario_engine import (
     run_scenario,
     summarize_scenario_results,
 )
-from .response_generator import generate_response
+from .response_generator import generate_response_with_metadata
 from .formal_context_builder import (
     build_formal_math_context,
     identify_formal_math_request,
 )
 from .math_response_generator import generate_math_response
 from .math_response_generator import MathResponseGenerator
-from .proof_validator import validate_formal_math_context
+from .proof_validator import context_is_structurally_usable, validate_formal_math_context
 from .sampat_reasoning_engine import SampatReasoningEngine
 from .domain.sampat2019 import get_theorem_metadata
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _default_response_metadata(mode: str, grounding_mode: str = "paper") -> Dict[str, Any]:
+    return {
+        "response_source": "deterministic",
+        "fallback_triggered": False,
+        "grounding_warning_applied": False,
+        "validation_warnings": [],
+        "validation_fatal": [],
+        "mode_used": mode,
+        "grounding_mode": grounding_mode,
+    }
 
 
 class IntentRouter:
@@ -191,7 +207,7 @@ def run_chatbot_session(
     Args:
         state: The current ProblemState.
         user_message: The user's natural language input.
-        mode: Response mode ("hint", "guided", or "full").
+        mode: Response mode ("hint", "guided", "full", or "exploration").
         use_llm: Whether to use the registered LLM provider for supported tasks.
 
     Returns:
@@ -219,7 +235,9 @@ def run_chatbot_session(
         "response": "",
         "intent": intent,
         "success": False,
+        "response_metadata": _default_response_metadata(mode),
     }
+    include_reference = mode == "exploration"
 
     try:
         reasoning_engine = SampatReasoningEngine()
@@ -229,7 +247,7 @@ def run_chatbot_session(
                 state=state,
                 pedagogical_mode=mode,
             )
-            response_text, render_mode = reasoning_engine.render_response(
+            response_text, render_mode, response_metadata = reasoning_engine.render_response(
                 package=reasoning_package,
                 state=state,
                 pedagogical_mode=mode,
@@ -238,6 +256,7 @@ def run_chatbot_session(
             result["response"] = response_text
             result["sampat_reasoning_package"] = reasoning_package
             result["render_mode"] = render_mode
+            result["response_metadata"] = response_metadata
 
             if reasoning_package.recommended_path == "math_response_generator":
                 formal_context = build_formal_math_context(
@@ -247,18 +266,20 @@ def run_chatbot_session(
                 )
                 result["formal_math_context"] = formal_context
                 request_type = identify_formal_math_request(user_message)["request_type"]
-                fatal_issues = validate_formal_math_context(formal_context)
+                validation = validate_formal_math_context(formal_context)
                 theorem_supported = (
                     True
                     if not formal_context.theorem_id
                     else get_theorem_metadata(formal_context.theorem_id) is not None
                 )
+                if validation["fatal"] or validation["warnings"]:
+                    LOGGER.debug("Formal math context validation for reasoning path: %s", validation)
                 result["success"] = (
                     formal_context.semantic_plan.get(
                         "is_supported_request",
                         request_type != "general_math_explanation",
                     )
-                    and not fatal_issues
+                    and context_is_structurally_usable(formal_context)
                     and theorem_supported
                 )
             else:
@@ -277,7 +298,12 @@ def run_chatbot_session(
                     "intent": intent,
                     "problem_state": state,
                 }
-                result["response"] = generate_response(mode, context, use_llm=use_llm)
+                result["response"], result["response_metadata"] = generate_response_with_metadata(
+                    mode,
+                    context,
+                    use_llm=use_llm,
+                    include_reference=include_reference,
+                )
                 result["success"] = True
             else:
                 result["response"] = (
@@ -295,7 +321,12 @@ def run_chatbot_session(
                 "problem_state": state,
                 "validation_result": diag,
             }
-            result["response"] = generate_response(mode, context, use_llm=use_llm)
+            result["response"], result["response_metadata"] = generate_response_with_metadata(
+                mode,
+                context,
+                use_llm=use_llm,
+                include_reference=include_reference,
+            )
             result["success"] = True
 
         elif intent == "solve":
@@ -317,7 +348,12 @@ def run_chatbot_session(
                 "solve_result": solve_result,
             }
 
-            result["response"] = generate_response(mode, context, use_llm=use_llm)
+            result["response"], result["response_metadata"] = generate_response_with_metadata(
+                mode,
+                context,
+                use_llm=use_llm,
+                include_reference=include_reference,
+            )
             result["success"] = bool(solve_result.get("success", False))
 
         elif intent == "theorem_check":
@@ -336,7 +372,12 @@ def run_chatbot_session(
                     for c in checks
                 ],
             }
-            result["response"] = generate_response(mode, context, use_llm=use_llm)
+            result["response"], result["response_metadata"] = generate_response_with_metadata(
+                mode,
+                context,
+                use_llm=use_llm,
+                include_reference=include_reference,
+            )
             result["success"] = True
 
         elif intent == "formal_math":
@@ -346,19 +387,22 @@ def run_chatbot_session(
                 user_message=user_message,
                 pedagogical_mode=mode,
             )
-            result["response"] = generate_math_response(formal_context, use_llm=use_llm)
+            math_generator = MathResponseGenerator(use_llm=use_llm)
+            result["response"], result["response_metadata"] = math_generator.generate_with_metadata(formal_context)
             result["formal_math_context"] = formal_context
             result["render_mode"] = MathResponseGenerator.infer_render_mode(formal_context)
             request_type = identify_formal_math_request(user_message)["request_type"]
-            fatal_issues = validate_formal_math_context(formal_context)
+            validation = validate_formal_math_context(formal_context)
             theorem_supported = (
                 True
                 if not formal_context.theorem_id
                 else get_theorem_metadata(formal_context.theorem_id) is not None
             )
+            if validation["fatal"] or validation["warnings"]:
+                LOGGER.debug("Formal math context validation for direct path: %s", validation)
             result["success"] = (
                 formal_context.semantic_plan.get("is_supported_request", request_type != "general_math_explanation")
-                and not fatal_issues
+                and context_is_structurally_usable(formal_context)
                 and theorem_supported
             )
 
@@ -389,7 +433,12 @@ def run_chatbot_session(
                     "scenario_extraction": extraction,
                     "response_mode": "solver_grounded_verification",
                 }
-                result["response"] = generate_response(mode, context, use_llm=use_llm)
+                result["response"], result["response_metadata"] = generate_response_with_metadata(
+                    mode,
+                    context,
+                    use_llm=use_llm,
+                    include_reference=include_reference,
+                )
                 result["scenario_result"] = scen_results
                 result["success"] = True
 
@@ -404,7 +453,12 @@ def run_chatbot_session(
                     "solver_ready": state.solver_ready(),
                 },
             }
-            result["response"] = generate_response(mode, context, use_llm=use_llm)
+            result["response"], result["response_metadata"] = generate_response_with_metadata(
+                mode,
+                context,
+                use_llm=use_llm,
+                include_reference=include_reference,
+            )
             result["success"] = True
 
     except Exception as e:

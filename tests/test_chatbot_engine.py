@@ -321,6 +321,8 @@ class TestChatbotEngineLLMIntegration:
         state = make_minimal_state()
         result = run_chatbot_session(state, "Validate please", use_llm=True)
         assert result["response"] == "LLM response"
+        assert result["response_metadata"]["response_source"] == "llm"
+        assert result["response_metadata"]["fallback_triggered"] is False
 
         registry.reset()
 
@@ -362,6 +364,8 @@ class TestExplanation:
         assert result["success"]
         assert result["sampat_reasoning_package"].response_mode == "paper_grounded_explanation"
         assert "The dual problem is formulated as follows:" not in result["response"]
+        grounded_terms = ["bids", "prices", "negative", "coordinated", "disposal", "remediation", "storage"]
+        assert sum(term in result["response"].lower() for term in grounded_terms) >= 3
 
 
 class TestModes:
@@ -385,6 +389,13 @@ class TestModes:
         result = run_chatbot_session(state, "Help", mode="full")
         assert result["success"]
         assert len(result["response"]) > 0
+
+    def test_exploration_mode(self):
+        state = make_minimal_state()
+        result = run_chatbot_session(state, "Help", mode="exploration")
+        assert result["success"]
+        assert len(result["response"]) > 0
+        assert result["response_metadata"]["mode_used"] == "exploration"
 
 
 class TestStateUpdates:

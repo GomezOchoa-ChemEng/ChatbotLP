@@ -204,9 +204,9 @@ class GeminiExplanationGenerator(ExplanationGenerator):
         response_mode = context.get("response_mode", "")
 
         mode_instruction = {
-            "hint": "Provide a short hint tied to the supplied instance. Do not give a full solution.",
-            "guided": "Provide a guided explanation tied to the supplied instance and current structured state.",
-            "full": "Provide a complete explanation tied to the supplied instance and current structured state.",
+            "hint": "Provide a short, intuition-heavy hint tied to the supplied instance. Do not give a full solution.",
+            "guided": "Provide a guided explanation that combines intuition, mathematical meaning, and economic meaning tied to the supplied structured state.",
+            "full": "Provide a complete layered explanation with intuition, mathematical meaning, and economic interpretation tied to the supplied structured state.",
         }[mode]
 
         context_type = context.get("type", "general")
@@ -233,12 +233,21 @@ class GeminiExplanationGenerator(ExplanationGenerator):
             )
 
         return f"""
-You are an assistant for a deterministic coordinated supply chain optimization chatbot.
+You are an assistant for ChatbotLP, a coordinated supply chain and coordinated management reasoning system inspired by Sampat et al. (2019).
 
-Stay grounded in the supplied structured context.
+Stay conceptually grounded in the coordinated management interpretation of Sampat et al. (2019).
+Treat the structured model as guidance, not a strict constraint.
+Keep the Sampat ontology recognizable: bids, transport flows, technologies or transformation, node-product balances, and node-product prices as dual or shadow values.
+Interpret negative bids and negative prices consistently with Section 2.3.
+Interpret technologies as linking products through yield coefficients.
 Do not fabricate data, entity IDs, theorem applicability, or solver results.
 If information is missing, state that clearly.
 {extra_instruction}
+Style expectations:
+- hint: intuition-heavy and short
+- guided: intuition plus math plus economic meaning
+- full: full layered explanation
+Do not over-constrain your wording.
 
 MODE:
 {mode_instruction}
@@ -277,18 +286,29 @@ REASONING PACKAGE:
         formal_math_context = _safe_json(context.get("formal_math_context"))
 
         return f"""
-You are writing a bounded mathematical exposition for ChatbotLP using the Sampat et al. (2019) Sections 2.1-2.3 support implemented in the repository.
+You are writing a mathematical exposition for ChatbotLP grounded in Sampat et al. (2019), especially the coordinated management and coordinated clearing interpretation.
 
-The deterministic system remains the mathematical authority.
-Use only the supplied notation and structured context.
-Do not invent symbols, assumptions, theorem applicability, or model structure.
+Stay conceptually grounded in the coordinated management interpretation of Sampat et al. (2019).
+Use the structured model as guidance, not a strict constraint.
+Keep the core Sampat objects recognizable: bids, transport flows, technologies or transformation, node-product balances, and node-product prices as dual or shadow values.
+Interpret negative bids and negative prices consistently with Section 2.3.
+Interpret technologies as linking products through yield coefficients.
+Do not invent solver results, assumptions, theorem applicability, or unsupported model structure.
 If assumptions are missing, say so plainly.
 If the theorem or request is outside the supported scope, say so plainly.
+Balance intuition, mathematical meaning, and economic interpretation when helpful.
+For explanation-style requests, aim for three layers:
+1. intuition
+2. mathematical meaning
+3. economic interpretation in the Sampat coordinated-clearing framework
+Mode expectations:
+- hint: short and intuition-heavy
+- guided: intuition plus math plus economic meaning
+- full: a fuller layered exposition
 When LaTeX is appropriate, write polished plain-text LaTeX suitable for direct display.
+Only minimal LaTeX correctness is required; natural mathematical exposition is preferred over rigid formatting.
 Return render-ready LaTeX fragments for notebooks, not standalone LaTeX documents.
-Do not include documentclass, usepackage, begin{{document}}, end{{document}}, or theorem/proof environments.
-For dual requests, write a clean optimization model with objective, constraints, and sign restrictions.
-For theorem-proof requests, prefer a bold theorem heading, display-math blocks where helpful, and a clear Proof. label.
+Do not include documentclass, usepackage, begin{{document}}, or end{{document}}.
 
 MODE:
 {mode}

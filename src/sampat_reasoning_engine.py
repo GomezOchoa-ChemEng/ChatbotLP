@@ -174,7 +174,7 @@ class SampatReasoningEngine:
         state: ProblemState,
         pedagogical_mode: str = "guided",
         use_llm: bool = False,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, Dict[str, Any]]:
         """Render a user-facing response and preferred render mode."""
 
         if package.recommended_path == "math_response_generator":
@@ -183,8 +183,9 @@ class SampatReasoningEngine:
                 user_message=package.plan.user_query,
                 pedagogical_mode=pedagogical_mode,
             )
-            response = MathResponseGenerator(use_llm=use_llm).generate(formal_context)
-            return response, MathResponseGenerator.infer_render_mode(formal_context)
+            generator = MathResponseGenerator(use_llm=use_llm)
+            response, metadata = generator.generate_with_metadata(formal_context)
+            return response, MathResponseGenerator.infer_render_mode(formal_context), metadata
 
         if use_llm:
             try:
@@ -193,7 +194,7 @@ class SampatReasoningEngine:
                 provider = LLMProviderRegistry.get_instance()
                 llm_gen = provider.get_explanation_generator()
                 llm_response = llm_gen.generate(
-                    "full" if pedagogical_mode == "full" else "guided",
+                    "full" if pedagogical_mode in {"full", "exploration"} else "guided",
                     {
                         "type": "sampat_reasoning",
                         "user_message": package.plan.user_query,
@@ -202,7 +203,33 @@ class SampatReasoningEngine:
                     },
                 )
                 if llm_response and llm_response.strip():
-                    return llm_response.strip(), "markdown"
+                    metadata = {
+                        "response_source": "llm",
+                        "fallback_triggered": False,
+                        "grounding_warning_applied": bool(package.missing_artifacts),
+                        "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
+                        "validation_fatal": [],
+                        "mode_used": pedagogical_mode,
+                        "grounding_mode": package.plan.grounding_mode,
+                    }
+                    if pedagogical_mode == "exploration":
+                        lines = [
+                            self._grounding_label(package.response_mode),
+                        ]
+                        lines.extend(package.answer_outline)
+                        if package.missing_information_text:
+                            lines.append("")
+                            lines.append(package.missing_information_text)
+                        reference = "\n\n".join(line for line in lines if line)
+                        return (
+                            "LLM Interpretation\n"
+                            f"{llm_response.strip()}\n\n"
+                            "Model-grounded reference\n"
+                            f"{reference}",
+                            "markdown",
+                            metadata,
+                        )
+                    return llm_response.strip(), "markdown", metadata
             except Exception:
                 pass
 
@@ -213,7 +240,15 @@ class SampatReasoningEngine:
         if package.missing_information_text:
             lines.append("")
             lines.append(package.missing_information_text)
-        return "\n\n".join(line for line in lines if line), "markdown"
+        return "\n\n".join(line for line in lines if line), "markdown", {
+            "response_source": "deterministic",
+            "fallback_triggered": use_llm,
+            "grounding_warning_applied": bool(package.missing_artifacts),
+            "validation_warnings": [artifact.reason for artifact in package.missing_artifacts],
+            "validation_fatal": [],
+            "mode_used": pedagogical_mode,
+            "grounding_mode": package.plan.grounding_mode,
+        }
 
     def _infer_plan(self, user_query: str) -> SampatReasoningPlan:
         text = user_query.lower()

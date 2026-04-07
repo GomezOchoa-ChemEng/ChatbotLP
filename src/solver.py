@@ -64,6 +64,16 @@ def _candidate_solvers(
     fallback_solver: str,
 ) -> List[Tuple[str, Optional[str]]]:
     """Return solver candidates with optional explicit executable paths."""
+    user_home = os.path.expanduser("~")
+    windows_glpk_paths = [
+        os.path.join(user_home, "miniconda3", "envs", "pyomo-solvers", "Library", "bin", "glpsol.exe"),
+        os.path.join(user_home, "Miniconda3", "envs", "pyomo-solvers", "Library", "bin", "glpsol.exe"),
+    ]
+    windows_ipopt_paths = [
+        os.path.join(user_home, "miniconda3", "envs", "pyomo-solvers", "Library", "bin", "ipopt.exe"),
+        os.path.join(user_home, "Miniconda3", "envs", "pyomo-solvers", "Library", "bin", "ipopt.exe"),
+    ]
+
     candidates: List[Tuple[str, Optional[str]]] = [
         (solver_name, None),
         (fallback_solver, None),
@@ -75,6 +85,7 @@ def _candidate_solvers(
             [
                 ("glpk", "/usr/bin/glpsol"),
                 ("glpk", "/bin/glpsol"),
+                *[("glpk", path) for path in windows_glpk_paths],
             ]
         )
 
@@ -83,6 +94,7 @@ def _candidate_solvers(
             [
                 ("ipopt", "/usr/bin/ipopt"),
                 ("ipopt", "/bin/ipopt"),
+                *[("ipopt", path) for path in windows_ipopt_paths],
             ]
         )
 

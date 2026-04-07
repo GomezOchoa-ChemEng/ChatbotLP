@@ -24,14 +24,15 @@ def make_state() -> ProblemState:
 
 def test_validate_formal_math_context_for_dual():
     context = build_formal_math_context(make_state(), "Give me the dual problem in LaTeX.")
-    issues = validate_formal_math_context(context)
-    assert issues == []
+    validation = validate_formal_math_context(context)
+    assert validation == {"fatal": [], "warnings": []}
 
 
-def test_validate_generated_math_response_flags_missing_dual_symbol():
+def test_validate_generated_math_response_flags_missing_dual_symbol_as_warning():
     context = build_formal_math_context(make_state(), "Give me the dual problem in LaTeX.")
-    issues = validate_generated_math_response(context, "dual text without symbols")
-    assert issues
+    validation = validate_generated_math_response(context, "dual text without symbols $$x$$")
+    assert validation["fatal"] == []
+    assert validation["warnings"]
 
 
 def test_validate_generated_math_response_accepts_two_block_dual_layout():
@@ -54,11 +55,11 @@ $$
 \end{aligned}
 $$
 """.strip()
-    issues = validate_generated_math_response(context, response)
-    assert issues == []
+    validation = validate_generated_math_response(context, response)
+    assert validation == {"fatal": [], "warnings": []}
 
 
-def test_validate_generated_math_response_rejects_extra_dual_prose():
+def test_validate_generated_math_response_allows_extra_dual_prose_under_relaxed_validation():
     context = build_formal_math_context(make_state(), "Give me the dual problem in LaTeX.")
     response = r"""
 The dual problem is formulated as follows:
@@ -80,31 +81,16 @@ $$
 
 This note should not appear.
 """.strip()
-    issues = validate_generated_math_response(context, response)
-    assert "Dual response must include the explanatory sentence exactly once." in issues
+    validation = validate_generated_math_response(context, response)
+    assert validation == {"fatal": [], "warnings": []}
 
 
-def test_validate_generated_math_response_rejects_non_sign_second_block():
+def test_validate_generated_math_response_flags_missing_dual_structure():
     context = build_formal_math_context(make_state(), "Give me the dual problem in LaTeX.")
-    response = r"""
-The dual problem is formulated as follows:
-
-$$
-\begin{aligned}
-(D)\qquad \min \quad & 6 \pi_{n1,p1} + 6 \mu_{bs} + 6 \nu_{bc} \\
-\text{s.t.} \quad & \pi_{n1,p1} + \mu_{bs} \ge 1 \\
-& \pi_{n1,p1} - \nu_{bc} \ge 2
-\end{aligned}
-$$
-$$
-\begin{aligned}
-& \pi_{n1,p1} \in \mathbb{R} \\
-& \min \quad \mu_{bs}
-\end{aligned}
-$$
-""".strip()
-    issues = validate_generated_math_response(context, response)
-    assert "Dual response second block must contain sign restrictions only." in issues
+    response = "Here is a vague dual description without any displayed math."
+    validation = validate_generated_math_response(context, response)
+    assert "Dual response should include a recognizable dual objective." in validation["fatal"]
+    assert "Dual response should include at least one display-math block." in validation["fatal"]
 
 
 def test_validate_generated_math_response_rejects_packed_dual_inequalities():
@@ -127,11 +113,11 @@ $$
 \end{aligned}
 $$
 """.strip()
-    issues = validate_generated_math_response(context, response)
-    assert "Dual response first block must not horizontally pack multiple inequalities." in issues
+    validation = validate_generated_math_response(context, response)
+    assert "Dual response packs multiple inequalities into a single row." in validation["warnings"]
 
 
 def test_validate_generated_math_response_flags_missing_proof_environment():
     context = build_formal_math_context(make_state(), "Show me that Theorem 1 holds.")
-    issues = validate_generated_math_response(context, "Theorem 1 applies.")
-    assert issues
+    validation = validate_generated_math_response(context, "Theorem 1 applies.")
+    assert validation["warnings"]

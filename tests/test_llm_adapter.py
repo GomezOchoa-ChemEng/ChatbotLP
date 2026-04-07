@@ -214,8 +214,9 @@ class TestGeminiExplanationGenerator(unittest.TestCase):
             },
         )
         self.assertIn("formal math", prompt.lower())
-        self.assertIn("use only supplied notation", prompt)
+        self.assertIn("structured model as guidance", prompt)
         self.assertIn("theorem_1", prompt)
+        self.assertIn("coordinated management interpretation", prompt)
 
     def test_sampat_reasoning_prompt_requests_value_add_not_scaffold_repetition(self):
         generator = GeminiExplanationGenerator(client=Mock(), model_name="gemini-test")
@@ -328,6 +329,22 @@ class TestConvenienceFunctions(unittest.TestCase):
         resp2 = generate_response("hint", {}, use_llm=True)
         # should not raise and should return default hint string
         self.assertIn("Hints:", resp2)
+
+    def test_generate_response_can_include_model_reference_channel(self):
+        provider = RuleBasedProvider(
+            intent_router=Mock(),
+            parse_function=lambda t: {},
+            generate_function=lambda mode, ctx: "Flexible LLM answer",
+        )
+        self.registry.set_provider(provider)
+        from src.response_generator import generate_response_with_metadata
+
+        resp, metadata = generate_response_with_metadata("exploration", {}, use_llm=True, include_reference=True)
+        self.assertIn("LLM Interpretation", resp)
+        self.assertIn("Flexible LLM answer", resp)
+        self.assertIn("Model-grounded reference", resp)
+        self.assertEqual(metadata["response_source"], "llm")
+        self.assertEqual(metadata["mode_used"], "exploration")
 
     def test_parse_supply_chain_text_use_llm(self):
         # provider with simple parse result
