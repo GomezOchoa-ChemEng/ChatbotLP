@@ -103,6 +103,7 @@ class ResponseGenerator:
         response_parts = []
 
         problem_state = context.get("problem_state")
+        market_instance = context.get("market_instance")
         if problem_state:
             response_parts.append(f"Problem: {problem_state.problem_title}")
             response_parts.append(
@@ -110,6 +111,12 @@ class ResponseGenerator:
                 f"{len(problem_state.products)} products, "
                 f"{len(problem_state.suppliers)} suppliers, "
                 f"{len(problem_state.consumers)} consumers."
+            )
+        if market_instance:
+            response_parts.append(
+                f"Machine market instance: {len(market_instance.bids)} bids, "
+                f"{len(market_instance.transport_links)} transport links, "
+                f"{len(market_instance.technologies)} technologies."
             )
 
         validation = self._get_validation(context)
@@ -188,6 +195,7 @@ class ResponseGenerator:
         response_parts = []
 
         problem_state = context.get("problem_state")
+        market_instance = context.get("market_instance")
         if problem_state:
             response_parts.append(f"Problem Title: {problem_state.problem_title}")
             response_parts.append("Nodes: " + ", ".join(n.id for n in problem_state.nodes))
@@ -195,6 +203,13 @@ class ResponseGenerator:
             response_parts.append("Suppliers: " + ", ".join(s.id for s in problem_state.suppliers))
             response_parts.append("Consumers: " + ", ".join(c.id for c in problem_state.consumers))
             response_parts.append("Bids: " + ", ".join(f"{b.id} ({b.price})" for b in problem_state.bids))
+        if market_instance:
+            response_parts.append(
+                "Machine Market Instance: "
+                f"{len(market_instance.bids)} bids, "
+                f"{len(market_instance.transport_links)} transport links, "
+                f"{len(market_instance.technologies)} technologies"
+            )
 
         validation = self._get_validation(context)
         response_parts.append("Validation Issues: " + "; ".join(validation.get("issues", [])))
@@ -216,6 +231,7 @@ class ResponseGenerator:
             response_parts.append(f"Theorem '{theorem_name}': {status_text} - {explanation}")
 
         solve_result = self._get_solve_result(context)
+        solver_results = context.get("solver_results")
         if solve_result:
             response_parts.append(f"Solver Status: {solve_result.get('status')}")
             response_parts.append(f"Message: {solve_result.get('message')}")
@@ -235,6 +251,21 @@ class ResponseGenerator:
                     response_parts.append(f"  {var}: {val}")
             else:
                 response_parts.append("  No solution variables reported.")
+
+        if solver_results:
+            response_parts.append("Structured Results:")
+            response_parts.append(f"  Solver: {solver_results.solver_name}")
+            response_parts.append(f"  Status: {solver_results.solver_status}")
+            response_parts.append(f"  Objective: {solver_results.objective_value}")
+            response_parts.append(f"  Bid Allocations: {len(solver_results.bid_allocations)} bids")
+            response_parts.append(f"  Transport Flows: {len(solver_results.transport_flows)} links")
+            response_parts.append(f"  Technology Extents: {len(solver_results.technology_extents)} technologies")
+            if solver_results.node_product_duals:
+                response_parts.append(f"  Nodal Prices: {len(solver_results.node_product_duals)} node-products")
+            if solver_results.plotting_data:
+                response_parts.append(
+                    f"  Plotting-ready tables: {', '.join(sorted(solver_results.plotting_data.keys()))}"
+                )
 
         scenario_results = self._get_scenario_results(context)
         if scenario_results:

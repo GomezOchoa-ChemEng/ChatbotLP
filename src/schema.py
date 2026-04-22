@@ -81,6 +81,53 @@ class Technology(BaseModel):
     yield_coefficients: Dict[str, float] = Field(default_factory=dict)
 
 
+class MarketBidRecord(BaseModel):
+    """Lightweight machine-facing bid record for deterministic model building."""
+
+    id: str
+    owner_id: str
+    owner_type: Literal["supplier", "consumer", "transport", "technology"]
+    node: Optional[str] = None
+    product_id: str
+    price: float
+    quantity: Optional[float] = None
+
+
+class MarketTransportRecord(BaseModel):
+    """Lightweight transport record for the internal market instance."""
+
+    id: str
+    origin: str
+    destination: str
+    product_id: str
+    capacity: Optional[float] = None
+    cost: float = 0.0
+
+
+class MarketTechnologyRecord(BaseModel):
+    """Lightweight technology record for the internal market instance."""
+
+    id: str
+    node: str
+    capacity: Optional[float] = None
+    cost: float = 0.0
+    yield_coefficients: Dict[str, float] = Field(default_factory=dict)
+
+
+class MarketInstance(BaseModel):
+    """Compact machine-facing market object used between interpretation and Pyomo."""
+
+    problem_title: str
+    nodes: List[str] = Field(default_factory=list)
+    products: List[str] = Field(default_factory=list)
+    bids: List[MarketBidRecord] = Field(default_factory=list)
+    transport_links: List[MarketTransportRecord] = Field(default_factory=list)
+    technologies: List[MarketTechnologyRecord] = Field(default_factory=list)
+    benchmark_case: Optional[str] = None
+    source: str = "problem_state"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 # ------------------------------------------------
 # Supporting / analytical objects
 # ------------------------------------------------

@@ -218,6 +218,8 @@ class TestSolveModel:
         assert "solver_time" in result_dict
         assert "success" in result_dict
         assert "solution" in result_dict
+        assert result_dict["termination_condition"] == "optimal"
+        assert result_dict["solver_name"] == "glpk"
 
 
 class TestResultExtraction:

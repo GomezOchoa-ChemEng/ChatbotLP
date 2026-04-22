@@ -162,6 +162,30 @@ class TestSolve:
         # May succeed or fail depending on solver availability; both are OK
         assert "response" in result
 
+    def test_solve_path_returns_market_instance_and_plotting_data(self, monkeypatch):
+        state = make_minimal_state()
+        monkeypatch.setattr(
+            "src.chatbot_engine.solve_model",
+            lambda model: SolveResult(
+                model=model,
+                status="optimal",
+                message="Solver glpk terminated with status optimal",
+                objective_value=5.0,
+                solver_time=0.01,
+                solution={"q": {"b1": 5.0, "b2": 5.0}, "f": {}, "x": {}},
+                success=True,
+                termination_condition="optimal",
+                solver_name="glpk",
+            ),
+        )
+
+        result = run_chatbot_session(state, "Solve the model")
+
+        assert result["success"]
+        assert result["market_instance"].problem_title == state.problem_title
+        assert "bid_allocations" in result["plotting_data"]
+        assert result["solver_results"].solver_name == "glpk"
+
 
 class TestTheoremCheck:
     """Test theorem checking workflow."""

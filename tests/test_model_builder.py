@@ -6,7 +6,12 @@ from pyomo.environ import value
 # ensure src importable
 sys.path.insert(0, str(Path.cwd()))
 
-from src.model_builder import _build_data_from_state, build_model_from_state
+from src.model_builder import (
+    _build_data_from_state,
+    build_market_instance,
+    build_model_from_market_instance,
+    build_model_from_state,
+)
 from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier, Technology
 
 
@@ -113,6 +118,30 @@ def test_build_data_from_state_includes_technology_fields():
     assert data["technology_costs"]["tech1"] == 0.0
     assert data["technology_yields"][("tech1", "P1")] == -1.0
     assert data["technology_yields"][("tech1", "P2")] == 0.8
+
+
+def test_build_market_instance_creates_lightweight_machine_object():
+    state = make_transformation_state()
+    instance = build_market_instance(state)
+
+    assert instance.problem_title == state.problem_title
+    assert instance.nodes == ["plant"]
+    assert instance.products == ["P1", "P2"]
+    assert len(instance.bids) == 2
+    assert len(instance.technologies) == 1
+    assert instance.technologies[0].yield_coefficients["P2"] == 0.8
+
+
+def test_build_model_from_market_instance_matches_state_path():
+    state = make_simple_state()
+    instance = build_market_instance(state)
+
+    model_from_state = build_model_from_state(state)
+    model_from_instance = build_model_from_market_instance(instance)
+
+    assert list(model_from_state.B) == list(model_from_instance.B)
+    assert list(model_from_state.N) == list(model_from_instance.N)
+    assert list(model_from_state.P) == list(model_from_instance.P)
 
 
 def test_transformation_model_includes_technology_components_and_capacity():

@@ -29,6 +29,8 @@ class SolveResult:
         solver_time: float,
         solution: Dict[str, Any],
         success: bool,
+        termination_condition: Optional[str] = None,
+        solver_name: Optional[str] = None,
     ):
         self.model = model
         self.status = status
@@ -37,6 +39,8 @@ class SolveResult:
         self.solver_time = solver_time
         self.solution = solution
         self.success = success
+        self.termination_condition = termination_condition
+        self.solver_name = solver_name
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -46,6 +50,8 @@ class SolveResult:
             "solver_time": self.solver_time,
             "solution": self.solution,
             "success": self.success,
+            "termination_condition": self.termination_condition,
+            "solver_name": self.solver_name,
             "dual_values": _extract_dual_values(self.model),
             "constraint_slacks": _extract_constraint_slacks(self.model),
         }
@@ -176,6 +182,8 @@ def solve_model(
             solver_time=0.0,
             solution={},
             success=False,
+            termination_condition="solver_unavailable",
+            solver_name=None,
         )
 
     for key, val in solver_options.items():
@@ -233,6 +241,8 @@ def solve_model(
         solver_time=solver_time,
         solution=solution,
         success=success,
+        termination_condition=term_cond,
+        solver_name=used_solver,
     )
 
 
