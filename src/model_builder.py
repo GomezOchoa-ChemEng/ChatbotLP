@@ -114,6 +114,7 @@ def _build_data_from_market_instance(instance: MarketInstance) -> Dict[str, Any]
         "bids": {},
         "transport_arcs": [],
         "transport_arc_ids": {},
+        "transport_products": {},
         "transport_costs": {},
         "transport_capacities": {},
         "technologies": [],
@@ -137,6 +138,7 @@ def _build_data_from_market_instance(instance: MarketInstance) -> Dict[str, Any]
         arc = (link.origin, link.destination)
         data["transport_arcs"].append(arc)
         data["transport_arc_ids"][arc] = link.id
+        data["transport_products"][arc] = link.product_id
         data["transport_capacities"][arc] = link.capacity
         data["transport_costs"][arc] = link.cost
 
@@ -212,14 +214,27 @@ def build_model(data: Dict[str, Any]) -> ConcreteModel:
             and data["bids"][bid_id]["product"] == product
             and data["bids"][bid_id]["type"] == "consumer"
         )
-        transport_in_sum = sum(m.f[origin, destination] for origin, destination in m.T if destination == node)
-        transport_out_sum = sum(m.f[origin, destination] for origin, destination in m.T if origin == node)
+        transport_in_sum = sum(
+            m.f[origin, destination]
+            for origin, destination in m.T
+            if destination == node
+            and data["transport_products"].get((origin, destination)) == product
+        )
+        transport_out_sum = sum(
+            m.f[origin, destination]
+            for origin, destination in m.T
+            if origin == node
+            and data["transport_products"].get((origin, destination)) == product
+        )
         technology_net = sum(
             data["technology_yields"].get((technology_id, product), 0.0) * m.x[technology_id]
             for technology_id in m.K
             if data["technology_nodes"].get(technology_id) == node
         )
-        return supply_sum + transport_in_sum + technology_net - consume_sum - transport_out_sum == 0
+        balance_expr = supply_sum + transport_in_sum + technology_net - consume_sum - transport_out_sum
+        if isinstance(balance_expr, (int, float)):
+            return Constraint.Feasible if abs(balance_expr) <= 1e-12 else Constraint.Infeasible
+        return balance_expr == 0
 
     model.node_balance = Constraint(model.N, model.P, rule=node_product_balance_rule)
 

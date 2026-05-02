@@ -167,6 +167,8 @@ def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
                 coefficient = tech.yield_coefficients.get(product.id)
                 if coefficient is not None and tech.node == node.id:
                     lhs_terms.append({"coefficient": coefficient, "symbol": f"x_{{{tech.id}}}"})
+            if not lhs_terms:
+                continue
             constraints.append(
                 {
                     "name": f"balance_{node.id}_{product.id}",
