@@ -14,14 +14,17 @@ user-facing response.
 """
 
 import logging
+import os
 import re
 from typing import Dict, Any
 
 from .schema import ProblemState
+from .llm_problem_interpreter import interpret_problem_from_text
 from .parser import parse_supply_chain_text
 from .validator import validate_state
 from .model_builder import build_market_instance, build_model_from_market_instance, build_model_from_state
 from .solver import solve_model
+from .solver_results import SolverResults
 from .theorem_checker import check_theorems
 from .scenario_engine import (
     extract_scenario_request,
@@ -38,6 +41,7 @@ from .math_response_generator import MathResponseGenerator
 from .proof_validator import context_is_structurally_usable, validate_formal_math_context
 from .sampat_reasoning_engine import SampatReasoningEngine
 from .domain.sampat2019 import get_theorem_metadata
+from .llm_adapter import LLMConfigurationError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -93,6 +97,8 @@ class IntentRouter:
         """Detect the primary intent from user text."""
         if self._looks_like_solver_grounded_scenario(text):
             return "scenario"
+        if self._looks_like_problem_description(text):
+            return "problem_formulation"
         if self._looks_like_explanation_or_comparison(text):
             formal_request = identify_formal_math_request(text)
             lowered = text.lower()
@@ -114,6 +120,61 @@ class IntentRouter:
             if pattern.search(text):
                 return intent
         return "explanation"
+
+    def _looks_like_problem_description(self, text: str) -> bool:
+        lowered = text.lower()
+        if any(
+            token in lowered
+            for token in (
+                "explain",
+                "why",
+                "how do",
+                "how does",
+                "compare",
+                "proof",
+                "theorem",
+                "validate",
+                "check status",
+                "solve the model",
+                "objective value",
+            )
+        ):
+            return False
+
+        entity_markers = sum(
+            token in lowered
+            for token in (
+                "supplier",
+                "consumer",
+                "buyer",
+                "seller",
+                "node",
+                "location",
+                "product",
+                "transport",
+                "link",
+                "capacity",
+                "price",
+                "bid",
+                "units",
+            )
+        )
+        structure_markers = sum(
+            phrase in lowered
+            for phrase in (
+                "there is",
+                "there are",
+                "at node",
+                "from ",
+                "to ",
+                "willing to pay",
+                "can supply",
+                "can consume",
+                "up to",
+            )
+        )
+        numeric_markers = bool(re.search(r"-?\d+(?:\.\d+)?", text))
+        return (entity_markers >= 3 and numeric_markers) or (entity_markers >= 2 and structure_markers >= 2)
 
     def _looks_like_solver_grounded_scenario(self, text: str) -> bool:
         lowered = text.lower()
@@ -237,6 +298,32 @@ def normalize_solve_result(solve_result: Any) -> Dict[str, Any]:
     }
 
 
+def _summarize_validation_gaps(validation: Dict[str, Any]) -> str:
+    missing = list(validation.get("missing_parameters", []))
+    invalid = list(validation.get("invalid_references", []))
+    incomplete = list(validation.get("incomplete_technologies", []))
+
+    issues = missing + invalid
+    if incomplete:
+        issues.extend(f"technology:{tech_id} is incomplete" for tech_id in incomplete)
+
+    if not issues:
+        return "The prose description was interpreted, but it is not solver-ready yet."
+
+    preview = "\n".join(f"- {issue}" for issue in issues[:6])
+    suffix = "\n- ..." if len(issues) > 6 else ""
+    return (
+        "I interpreted the prose into a structured problem, but some information is still missing or inconsistent:\n"
+        f"{preview}{suffix}\n"
+        "Add the missing capacities, bid details, or references and I can try solving it."
+    )
+
+
+def _gemini_runtime_was_explicitly_requested() -> bool:
+    provider_name = os.getenv("LLM_PROVIDER", "").strip().lower()
+    return provider_name == "gemini" or bool(os.getenv("GEMINI_API_KEY"))
+
+
 def run_chatbot_session(
     state: ProblemState,
     user_message: str,
@@ -332,35 +419,45 @@ def run_chatbot_session(
             # Try LLM-based interpretation first if use_llm is True
             if use_llm:
                 try:
-                    from .llm_problem_interpreter import interpret_problem_from_text
-
-                    # Interpret the natural language description
                     interpretation_result = interpret_problem_from_text(user_message)
                     semantic_plan = interpretation_result["semantic_plan"]
                     narrative_interpretation = interpretation_result["narrative_interpretation"]
                     new_state = interpretation_result["problem_state"]
                     market_instance = interpretation_result["market_instance"]
+                    state_summary = interpretation_result.get("state_summary")
 
-                    # Validate the resulting state
                     validation = validate_state(new_state)
+                    result["state"] = new_state
+                    result["semantic_plan"] = semantic_plan
+                    result["narrative_interpretation"] = narrative_interpretation
+                    result["validation_result"] = validation
+                    result["market_instance"] = market_instance
+                    result["state_summary"] = state_summary
+
+                    context = {
+                        "type": "problem_formulation",
+                        "user_message": user_message,
+                        "intent": intent,
+                        "problem_state": new_state,
+                        "market_instance": market_instance,
+                        "semantic_plan": semantic_plan,
+                        "narrative_interpretation": narrative_interpretation,
+                        "validation_result": validation,
+                        "state_summary": state_summary,
+                    }
 
                     if validation["solver_ready"]:
-                        # Update the state with the interpreted problem
-                        result["state"] = new_state
-                        result["semantic_plan"] = semantic_plan
-                        result["narrative_interpretation"] = narrative_interpretation
-                        result["validation_result"] = validation
-                        result["market_instance"] = market_instance
+                        model = build_model_from_market_instance(market_instance)
+                        raw_solve_result = solve_model(model)
+                        solve_result = normalize_solve_result(raw_solve_result)
+                        solver_results = SolverResults.from_solve_result(raw_solve_result, new_state)
 
-                        context = {
-                            "type": "problem_formulation",
-                            "user_message": user_message,
-                            "intent": intent,
-                            "problem_state": new_state,
-                            "market_instance": market_instance,
-                            "semantic_plan": semantic_plan,
-                            "narrative_interpretation": narrative_interpretation,
-                        }
+                        context["solve_result"] = solve_result
+                        context["solver_results"] = solver_results
+                        result["solve_result"] = solve_result
+                        result["solver_results"] = solver_results
+                        result["plotting_data"] = solver_results.plotting_data
+
                         result["response"], result["response_metadata"] = generate_response_with_metadata(
                             mode,
                             context,
@@ -369,42 +466,42 @@ def run_chatbot_session(
                         )
                         result["success"] = True
                     else:
-                        # Validation failed - provide feedback
-                        issues = validation["missing_parameters"] + validation["invalid_references"]
-                        result["response"] = (
-                            f"LLM interpretation succeeded but validation found issues:\n" +
-                            "\n".join(f"- {issue}" for issue in issues[:5]) +  # Limit to first 5
-                            ("\n... (and more)" if len(issues) > 5 else "")
-                        )
-                        result["semantic_plan"] = semantic_plan
-                        result["narrative_interpretation"] = narrative_interpretation
-                        result["validation_result"] = validation
+                        result["response"] = _summarize_validation_gaps(validation)
                         result["success"] = False
 
+                except LLMConfigurationError as e:
+                    if _gemini_runtime_was_explicitly_requested():
+                        result["response"] = f"LLM interpretation configuration error: {e}"
+                        result["response_metadata"]["fallback_triggered"] = False
+                        result["response_metadata"]["fallback_reason"] = "llm_configuration_error"
+                        result["success"] = False
+                    else:
+                        parsed = parse_supply_chain_text(user_message, use_llm=True)
+                        if any(parsed.values()):
+                            incorporate_parsed_entities(state, parsed)
+                            context = {
+                                "type": "problem_formulation",
+                                "user_message": user_message,
+                                "intent": intent,
+                                "problem_state": state,
+                            }
+                            result["response"], result["response_metadata"] = generate_response_with_metadata(
+                                mode,
+                                context,
+                                use_llm=use_llm,
+                                include_reference=include_reference,
+                            )
+                            result["success"] = True
+                        else:
+                            result["response"] = f"LLM interpretation configuration error: {e}"
+                            result["response_metadata"]["fallback_triggered"] = False
+                            result["response_metadata"]["fallback_reason"] = "llm_configuration_error"
+                            result["success"] = False
                 except Exception as e:
-                    # LLM interpretation failed - fall back to rule-based parsing
-                    result["response"] = f"LLM interpretation failed ({e}), falling back to rule-based parsing."
-                    result["response_metadata"]["fallback_triggered"] = True
-                    parsed = parse_supply_chain_text(user_message, use_llm=True)
-                    if any(parsed.values()):
-                        incorporate_parsed_entities(state, parsed)
-                        context = {
-                            "type": "problem_formulation",
-                            "user_message": user_message,
-                            "intent": intent,
-                            "problem_state": state,
-                        }
-                        result["response"] += " Rule-based parsing succeeded."
-                        result["response"], result["response_metadata"] = generate_response_with_metadata(
-                            mode,
-                            context,
-                            use_llm=use_llm,
-                            include_reference=include_reference,
-                        )
-                        result["success"] = True
-                    else:
-                        result["response"] += " Rule-based parsing also failed."
-                        result["success"] = False
+                    result["response"] = f"LLM interpretation failed: {e}"
+                    result["response_metadata"]["fallback_triggered"] = False
+                    result["response_metadata"]["fallback_reason"] = "llm_interpretation_error"
+                    result["success"] = False
             else:
                 # Use rule-based parsing when LLM is disabled
                 parsed = parse_supply_chain_text(user_message, use_llm=False)
@@ -449,8 +546,6 @@ def run_chatbot_session(
             result["success"] = True
 
         elif intent == "solve":
-            from .solver_results import SolverResults
-
             diag = validate_state(state)
             market_instance = build_market_instance(state)
             model = build_model_from_market_instance(market_instance)
@@ -603,4 +698,20 @@ def run_chatbot_session(
     return result
 
 
-__all__ = ["IntentRouter", "run_chatbot_session", "normalize_solve_result"]
+def ask_chatbot(
+    state: ProblemState,
+    prompt: str,
+    use_llm: bool = False,
+    mode: str = "guided",
+) -> Dict[str, Any]:
+    """Compatibility helper for notebook-style chatbot prompts."""
+
+    return run_chatbot_session(
+        state=state,
+        user_message=prompt,
+        mode=mode,
+        use_llm=use_llm,
+    )
+
+
+__all__ = ["IntentRouter", "ask_chatbot", "run_chatbot_session", "normalize_solve_result"]

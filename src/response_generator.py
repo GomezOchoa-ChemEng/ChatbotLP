@@ -99,6 +99,8 @@ class ResponseGenerator:
             return scenario_summary
         if context.get("type") == "explanation":
             return self._generate_explanation_summary(context, detailed=False)
+        if context.get("type") == "problem_formulation":
+            return self._generate_problem_formulation_summary(context, detailed=False)
 
         response_parts = []
 
@@ -191,6 +193,8 @@ class ResponseGenerator:
             return scenario_summary
         if context.get("type") == "explanation":
             return self._generate_explanation_summary(context, detailed=True)
+        if context.get("type") == "problem_formulation":
+            return self._generate_problem_formulation_summary(context, detailed=True)
 
         response_parts = []
 
@@ -318,6 +322,69 @@ class ResponseGenerator:
         if validation:
             readiness = "solver-ready" if validation.get("solver_ready") else "not yet solver-ready"
             lines.append(f"Current status: the structured state is {readiness}.")
+
+        return "\n".join(lines)
+
+    def _generate_problem_formulation_summary(self, context: Dict[str, Any], detailed: bool) -> str:
+        problem_state = context.get("problem_state")
+        semantic_plan = context.get("semantic_plan", {}) or {}
+        validation = self._get_validation(context)
+        solve_result = self._get_solve_result(context)
+        solver_results = context.get("solver_results")
+
+        if not problem_state:
+            return "I could not build a structured problem state from the prose description."
+
+        lines = [
+            f"I interpreted the prose as '{problem_state.problem_title}'.",
+            (
+                f"The structured instance has {len(problem_state.nodes)} node(s), {len(problem_state.products)} product(s), "
+                f"{len(problem_state.suppliers)} supplier(s), {len(problem_state.consumers)} consumer(s), "
+                f"{len(problem_state.transport_links)} transport link(s), and {len(problem_state.bids)} bid(s)."
+            ),
+        ]
+
+        if semantic_plan.get("problem_type") and semantic_plan.get("problem_type") != "unknown":
+            lines.append(f"Benchmark hint: this looks most like {semantic_plan['problem_type']}.")
+
+        missing_information = semantic_plan.get("missing_information", [])
+        ambiguities = semantic_plan.get("ambiguities", [])
+        if missing_information:
+            lines.append("Still missing from the prose: " + "; ".join(str(item) for item in missing_information[:4]))
+        if ambiguities:
+            lines.append("Ambiguities I kept open: " + "; ".join(str(item) for item in ambiguities[:3]))
+
+        if validation:
+            if validation.get("solver_ready"):
+                lines.append("Validation: the interpreted instance is solver-ready.")
+            else:
+                open_items = validation.get("missing_parameters", []) + validation.get("invalid_references", [])
+                if open_items:
+                    lines.append("Validation gaps: " + "; ".join(open_items[:4]))
+                else:
+                    lines.append("Validation: the instance is not solver-ready yet.")
+
+        if solve_result:
+            lines.append(f"Solver status: {solve_result.get('status')}.")
+            if solve_result.get("objective_value") is not None:
+                lines.append(f"Objective value: {solve_result.get('objective_value')}.")
+            if solver_results and solver_results.bid_allocations:
+                accepted = [
+                    f"{bid_id}={quantity:g}" for bid_id, quantity in list(solver_results.bid_allocations.items())[:4]
+                ]
+                lines.append("Accepted bid quantities: " + ", ".join(accepted))
+            if detailed and solver_results and solver_results.transport_flows:
+                flows = [
+                    f"{flow_id}={quantity:g}" for flow_id, quantity in list(solver_results.transport_flows.items())[:4]
+                ]
+                lines.append("Transport activity: " + ", ".join(flows))
+        elif validation and validation.get("solver_ready"):
+            lines.append("The model is ready, but no solver result is available yet.")
+
+        if detailed:
+            lines.append(
+                "This explanation is grounded in the parsed structure first, then in solver outputs when the model could be run."
+            )
 
         return "\n".join(lines)
 

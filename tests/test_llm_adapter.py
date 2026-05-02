@@ -33,7 +33,10 @@ from src.llm_adapter import (
     GeminiLLMProvider,
     configure_gemini_provider,
     DEFAULT_GEMINI_MODEL,
+    LLMConfigurationError,
+    ensure_gemini_provider,
     get_active_provider_debug_info,
+    get_provider_diagnostics,
     get_response_metadata_debug_info,
     print_active_provider_debug_info,
 )
@@ -283,9 +286,13 @@ class TestGeminiLLMProvider(unittest.TestCase):
     def test_get_active_provider_debug_info_for_gemini(self):
         provider = GeminiLLMProvider(client=Mock(), model_name="gemini-test")
         self.registry.set_provider(provider)
-        message = get_active_provider_debug_info()
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            message = get_active_provider_debug_info()
         self.assertIn("GeminiLLMProvider", message)
         self.assertIn("gemini-test", message)
+        self.assertIn("generate_function available: True", message)
+        self.assertIn("parse_function available: False", message)
+        self.assertIn("GEMINI_API_KEY detected: True", message)
 
     def test_print_active_provider_debug_info_for_default_provider(self):
         with patch("builtins.print") as mock_print:
@@ -293,6 +300,18 @@ class TestGeminiLLMProvider(unittest.TestCase):
         self.assertIn("RuleBasedProvider", message)
         self.assertIn("deterministic fallback", message)
         mock_print.assert_called_once()
+
+    def test_get_provider_diagnostics_for_rule_based_provider(self):
+        provider = RuleBasedProvider(
+            intent_router=Mock(),
+            parse_function=lambda text: {},
+            generate_function=lambda mode, ctx: "ok",
+        )
+        self.registry.set_provider(provider)
+        diagnostics = get_provider_diagnostics()
+        self.assertEqual(diagnostics["provider_name"], "RuleBasedProvider")
+        self.assertTrue(diagnostics["generate_function_available"])
+        self.assertTrue(diagnostics["parse_function_available"])
 
     def test_get_response_metadata_debug_info(self):
         message = get_response_metadata_debug_info(
@@ -375,6 +394,33 @@ class TestConvenienceFunctions(unittest.TestCase):
         self.assertEqual(entities["nodes"][0]["id"], "foo")
 
         self.registry.reset()
+
+    def test_ensure_gemini_provider_registers_provider_when_requested(self):
+        with patch.dict(
+            os.environ,
+            {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "gemini-test"},
+            clear=True,
+        ):
+            provider = ensure_gemini_provider(client=Mock())
+
+        self.assertIsInstance(provider, GeminiLLMProvider)
+        self.assertIs(self.registry.get_registered_provider(), provider)
+
+    def test_ensure_gemini_provider_rejects_missing_provider_env(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            with self.assertRaisesRegex(
+                LLMConfigurationError,
+                "LLM_PROVIDER is not set to 'gemini'",
+            ):
+                ensure_gemini_provider(client=Mock())
+
+    def test_ensure_gemini_provider_rejects_missing_api_key(self):
+        with patch.dict(os.environ, {"LLM_PROVIDER": "gemini"}, clear=True):
+            with self.assertRaisesRegex(
+                LLMConfigurationError,
+                "GEMINI_API_KEY is not set",
+            ):
+                ensure_gemini_provider(client=Mock())
 
 
 class TestRuleBasedIntentClassifierAdapter(unittest.TestCase):

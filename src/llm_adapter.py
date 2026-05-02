@@ -29,6 +29,10 @@ from .llm_interfaces import (
 DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
 
 
+class LLMConfigurationError(RuntimeError):
+    """Raised when the requested LLM provider is not configured correctly."""
+
+
 def _safe_json(obj: Any) -> str:
     """Serialize context objects for prompt construction."""
 
@@ -562,6 +566,10 @@ class LLMProviderRegistry:
             return RuleBasedProvider()
         return self._provider
 
+    def get_registered_provider(self) -> Optional[LLMProvider]:
+        """Return the explicitly registered provider, if any."""
+        return self._provider
+
     def reset(self) -> None:
         """Reset the registry to its default state.
 
@@ -582,15 +590,47 @@ class LLMProviderRegistry:
         return self.get_provider().get_explanation_generator()
 
 
-def get_active_provider_debug_info() -> str:
-    """Return a short debug string showing the active provider and model."""
+def get_provider_diagnostics() -> Dict[str, Any]:
+    """Return notebook-friendly diagnostics for the active provider state."""
 
-    provider = LLMProviderRegistry.get_instance().get_provider()
+    registry = LLMProviderRegistry.get_instance()
+    provider = registry.get_provider()
     provider_name = provider.__class__.__name__
     model_name = getattr(provider, "model_name", None)
-    if model_name:
-        return f"Active provider: {provider_name}; active model: {model_name}"
-    return f"Active provider: {provider_name}; active model: deterministic fallback / n/a"
+    api_key_detected = bool(os.getenv("GEMINI_API_KEY"))
+
+    generate_available = False
+    parse_available = False
+    if isinstance(provider, GeminiLLMProvider):
+        generate_available = bool(getattr(provider, "client", None)) or api_key_detected
+        parse_available = provider.parse_function is not None
+    elif isinstance(provider, RuleBasedProvider):
+        generate_available = provider.generate_function is not None
+        parse_available = provider.parse_function is not None
+    else:
+        generate_available = hasattr(provider, "get_explanation_generator")
+        parse_available = hasattr(provider, "get_parser")
+
+    return {
+        "provider_name": provider_name,
+        "model_name": model_name or "deterministic fallback / n/a",
+        "generate_function_available": generate_available,
+        "parse_function_available": parse_available,
+        "gemini_api_key_detected": api_key_detected,
+    }
+
+
+def get_active_provider_debug_info() -> str:
+    """Return a short debug string showing the active provider and capabilities."""
+
+    diagnostics = get_provider_diagnostics()
+    return (
+        f"Active provider: {diagnostics['provider_name']}; "
+        f"active model: {diagnostics['model_name']}; "
+        f"generate_function available: {diagnostics['generate_function_available']}; "
+        f"parse_function available: {diagnostics['parse_function_available']}; "
+        f"GEMINI_API_KEY detected: {diagnostics['gemini_api_key_detected']}"
+    )
 
 
 def get_response_metadata_debug_info(metadata: Dict[str, Any]) -> str:
@@ -613,6 +653,55 @@ def print_active_provider_debug_info() -> str:
     message = get_active_provider_debug_info()
     print(message)
     return message
+
+
+def require_gemini_runtime_configuration() -> None:
+    """Validate environment variables needed for Gemini-backed runtime usage."""
+
+    provider_name = os.getenv("LLM_PROVIDER", "").strip().lower()
+    if provider_name != "gemini":
+        raise LLMConfigurationError(
+            "Gemini interpretation was requested but LLM_PROVIDER is not set to 'gemini'. "
+            "Set LLM_PROVIDER=gemini before running the prose interpreter."
+        )
+    if not os.getenv("GEMINI_API_KEY"):
+        raise LLMConfigurationError(
+            "Gemini interpretation was requested but GEMINI_API_KEY is not set. "
+            "Export GEMINI_API_KEY in the shell that launches your notebook or script."
+        )
+
+
+def ensure_gemini_provider(
+    model_name: Optional[str] = None,
+    client: Any = None,
+) -> GeminiLLMProvider:
+    """Ensure the registry is wired to a Gemini-backed provider and validate it."""
+
+    require_gemini_runtime_configuration()
+    registry = LLMProviderRegistry.get_instance()
+    registered_provider = registry.get_registered_provider()
+
+    if isinstance(registered_provider, GeminiLLMProvider):
+        provider = registered_provider
+    else:
+        provider = configure_gemini_provider(model_name=model_name, client=client)
+
+    try:
+        provider.get_explanation_generator()
+    except (ValueError, ImportError, RuntimeError) as exc:
+        raise LLMConfigurationError(
+            "Gemini provider could not be initialized for prose interpretation. "
+            f"{exc}"
+        ) from exc
+
+    diagnostics = get_provider_diagnostics()
+    if not diagnostics["generate_function_available"]:
+        raise LLMConfigurationError(
+            "Gemini provider is active but explanation generation is unavailable. "
+            f"Diagnostics: {get_active_provider_debug_info()}"
+        )
+
+    return provider
 
 
 def configure_gemini_provider(

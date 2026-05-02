@@ -10,12 +10,15 @@ import pytest
 from unittest.mock import Mock, patch
 
 from src.llm_problem_interpreter import (
+    build_problem_artifacts_from_semantic_plan,
     interpret_problem_from_text,
     build_state_from_semantic_plan,
     _validate_semantic_plan,
     _build_interpretation_prompt,
+    normalize_semantic_plan,
 )
 from src.schema import ProblemState
+from src.llm_adapter import LLMConfigurationError
 
 
 class TestSemanticPlanValidation:
@@ -132,6 +135,55 @@ class TestStateConstruction:
         assert tech.yield_coefficients["P1"] == -1.0
         assert tech.yield_coefficients["P2"] == 1.0
 
+    def test_builder_assigns_missing_ids_and_resolves_names(self):
+        """Test that lightweight normalization can backfill IDs and resolve named references."""
+        plan = {
+            "problem_title": "Paraphrased Case A",
+            "nodes": [{"name": "Production Site"}, {"name": "Demand Site"}],
+            "products": [{"name": "Ammonia"}],
+            "suppliers": [{"node": "Production Site", "product": "Ammonia", "capacity": 100.0}],
+            "consumers": [{"node": "Demand Site", "product": "Ammonia", "capacity": 60.0}],
+            "transport_links": [{"origin": "Production Site", "destination": "Demand Site", "product": "Ammonia", "capacity": 100.0}],
+            "bids": [
+                {"owner_id": "S1", "owner_type": "supplier", "product_id": "Ammonia", "price": 8.0, "quantity": 100.0},
+                {"owner_id": "C1", "owner_type": "consumer", "product_id": "Ammonia", "price": 14.0, "quantity": 60.0},
+            ],
+            "technologies": [],
+        }
+
+        normalized = normalize_semantic_plan(plan)
+        state = build_state_from_semantic_plan(normalized)
+
+        assert state.nodes[0].id == "Production_Site"
+        assert state.nodes[1].id == "Demand_Site"
+        assert state.products[0].id == "Ammonia"
+        assert state.suppliers[0].node == "Production_Site"
+        assert state.suppliers[0].product == "Ammonia"
+        assert state.consumers[0].node == "Demand_Site"
+        assert state.bids[0].owner_id == "S1"
+        assert state.bids[0].product_id == "Ammonia"
+
+    def test_build_problem_artifacts_exposes_state_summary(self):
+        plan = {
+            "problem_title": "Case A Summary",
+            "nodes": [{"id": "N1"}, {"id": "N2"}],
+            "products": [{"id": "P1"}],
+            "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
+            "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+            "bids": [
+                {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
+                {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},
+            ],
+            "technologies": [],
+        }
+
+        artifacts = build_problem_artifacts_from_semantic_plan(plan)
+
+        assert artifacts["state_summary"]["counts"]["nodes"] == 2
+        assert artifacts["state_summary"]["counts"]["bids"] == 2
+        assert artifacts["market_instance"].problem_title == "Case A Summary"
+
 
 class TestInterpretationPrompt:
     """Test the LLM interpretation prompt building."""
@@ -147,16 +199,17 @@ class TestInterpretationPrompt:
         assert "problem_title" in prompt
         assert "nodes" in prompt
         assert "suppliers" in prompt
+        assert "missing_information" in prompt
+        assert "Preserve every explicit numeric value exactly as written" in prompt
 
 
 class TestLLMInterpretation:
     """Test the full LLM interpretation pipeline."""
 
-    @patch('src.llm_problem_interpreter.LLMProviderRegistry')
+    @patch("src.llm_problem_interpreter.ensure_gemini_provider")
     @patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"})
-    def test_interpret_problem_from_text_success(self, mock_registry):
+    def test_interpret_problem_from_text_success(self, mock_ensure_gemini_provider):
         """Test successful interpretation with mocked LLM."""
-        # Mock the LLM response
         mock_provider = Mock()
         mock_generator = Mock()
         mock_generator.generate.return_value = json.dumps({
@@ -170,7 +223,7 @@ class TestLLMInterpretation:
             "technologies": [],
         })
         mock_provider.get_explanation_generator.return_value = mock_generator
-        mock_registry.get_instance.return_value.get_provider.return_value = mock_provider
+        mock_ensure_gemini_provider.return_value = mock_provider
 
         result = interpret_problem_from_text("Test description")
 
@@ -179,16 +232,43 @@ class TestLLMInterpretation:
         assert result["problem_state"].problem_title == "Test Problem"
         assert result["market_instance"].problem_title == "Test Problem"
 
-    @patch('src.llm_problem_interpreter.LLMProviderRegistry')
+    @patch("src.llm_problem_interpreter.ensure_gemini_provider")
     @patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"})
-    def test_interpret_problem_from_text_invalid_json(self, mock_registry):
+    def test_interpret_problem_from_text_incomplete_case_a(self, mock_ensure_gemini_provider):
+        """Test incomplete prose preserves missing data rather than inventing it."""
+        mock_provider = Mock()
+        mock_generator = Mock()
+        mock_generator.generate.return_value = json.dumps({
+            "problem_title": "Incomplete Case A",
+            "problem_type": "case_a",
+            "nodes": [{"id": "N1"}],
+            "products": [{"id": "P1"}],
+            "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": None}],
+            "consumers": [{"id": "C1", "node": "N1", "product": "P1", "capacity": None}],
+            "transport_links": [],
+            "bids": [],
+            "technologies": [],
+            "missing_information": ["supplier capacity", "consumer bid price"],
+            "ambiguities": [],
+        })
+        mock_provider.get_explanation_generator.return_value = mock_generator
+        mock_ensure_gemini_provider.return_value = mock_provider
+
+        result = interpret_problem_from_text("Supplier and consumer exist but capacities were not stated.")
+
+        assert result["semantic_plan"]["missing_information"] == ["supplier capacity", "consumer bid price"]
+        assert result["problem_state"].suppliers[0].capacity is None
+        assert result["problem_state"].consumers[0].capacity is None
+
+    @patch("src.llm_problem_interpreter.ensure_gemini_provider")
+    @patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"})
+    def test_interpret_problem_from_text_invalid_json(self, mock_ensure_gemini_provider):
         """Test handling of invalid JSON from LLM."""
-        # Mock invalid JSON response
         mock_provider = Mock()
         mock_generator = Mock()
         mock_generator.generate.return_value = "Invalid JSON response"
         mock_provider.get_explanation_generator.return_value = mock_generator
-        mock_registry.get_instance.return_value.get_provider.return_value = mock_provider
+        mock_ensure_gemini_provider.return_value = mock_provider
 
         with pytest.raises(ValueError, match="LLM output is not valid JSON"):
             interpret_problem_from_text("Test description")
@@ -204,21 +284,30 @@ class TestLLMInterpretation:
             interpret_problem_from_text("   \n\t   ")
 
     def test_interpret_without_env_vars(self):
-        """Test that missing environment variables raise RuntimeError."""
+        """Test that missing environment variables raise a configuration error."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(RuntimeError, match="LLM interpretation requires explicit configuration"):
+            with pytest.raises(
+                LLMConfigurationError,
+                match="LLM_PROVIDER is not set to 'gemini'",
+            ):
                 interpret_problem_from_text("Test description")
 
     @patch.dict(os.environ, {"LLM_PROVIDER": "other", "GEMINI_API_KEY": "test-key"})
     def test_interpret_wrong_provider(self):
-        """Test that wrong provider raises RuntimeError."""
-        with pytest.raises(RuntimeError, match="LLM interpretation requires explicit configuration"):
+        """Test that wrong provider raises a configuration error."""
+        with pytest.raises(
+            LLMConfigurationError,
+            match="LLM_PROVIDER is not set to 'gemini'",
+        ):
             interpret_problem_from_text("Test description")
 
     @patch.dict(os.environ, {"LLM_PROVIDER": "gemini"}, clear=True)
     def test_interpret_missing_api_key(self):
-        """Test that missing API key raises RuntimeError."""
-        with pytest.raises(RuntimeError, match="GEMINI_API_KEY environment variable is required"):
+        """Test that missing API key raises a configuration error."""
+        with pytest.raises(
+            LLMConfigurationError,
+            match="GEMINI_API_KEY is not set",
+        ):
             interpret_problem_from_text("Test description")
 
 

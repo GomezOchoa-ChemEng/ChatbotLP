@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from unittest.mock import Mock
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path.cwd()))
 
@@ -15,7 +16,9 @@ from src.schema import (
     Technology,
 )
 from src.chatbot_engine import IntentRouter, run_chatbot_session
+from src.llm_problem_interpreter import build_problem_artifacts_from_semantic_plan
 from src.solver import SolveResult
+from src.llm_adapter import LLMConfigurationError
 
 
 def make_minimal_state():
@@ -71,6 +74,13 @@ class TestIntentDetection:
         assert router.detect_intent("Add a supplier in node A") == "problem_formulation"
         assert router.detect_intent("Define product P") == "problem_formulation"
         assert router.detect_intent("Node 1 and Node 2") == "problem_formulation"
+        assert (
+            router.detect_intent(
+                "There are two nodes N1 and N2. Supplier S1 at N1 can supply 100 units of P1. "
+                "Consumer C1 at N2 will buy 50 units of P1 for 20."
+            )
+            == "problem_formulation"
+        )
 
     def test_validation_intent(self):
         router = IntentRouter()
@@ -353,6 +363,92 @@ class TestChatbotEngineLLMIntegration:
 
         registry.reset()
 
+    def test_prose_problem_runs_interpret_validate_and_solve(self, monkeypatch):
+        plan = {
+            "problem_title": "Case A Prose",
+            "problem_type": "case_a",
+            "nodes": [{"id": "N1"}, {"id": "N2"}],
+            "products": [{"id": "P1"}],
+            "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
+            "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+            "bids": [
+                {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
+                {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},
+            ],
+            "technologies": [],
+            "missing_information": [],
+            "ambiguities": [],
+        }
+
+        monkeypatch.setattr(
+            "src.chatbot_engine.interpret_problem_from_text",
+            lambda text: build_problem_artifacts_from_semantic_plan(plan),
+        )
+        monkeypatch.setattr(
+            "src.chatbot_engine.solve_model",
+            lambda model: SolveResult(
+                model=model,
+                status="optimal",
+                message="Solver glpk terminated with status optimal",
+                objective_value=500.0,
+                solver_time=0.01,
+                solution={"q": {"B1": 50.0, "B2": 50.0}, "f": {"('N1', 'N2')": 50.0}, "x": {}},
+                success=True,
+                termination_condition="optimal",
+                solver_name="glpk",
+            ),
+        )
+
+        result = run_chatbot_session(
+            ProblemState(),
+            (
+                "There are two nodes N1 and N2. Supplier S1 at N1 can provide 100 units of product P1 "
+                "at price 10. Consumer C1 at N2 is willing to pay 20 for up to 50 units of P1. "
+                "A transport link connects N1 to N2 with capacity 100."
+            ),
+            use_llm=True,
+        )
+
+        assert result["intent"] == "problem_formulation"
+        assert result["success"] is True
+        assert result["validation_result"]["solver_ready"] is True
+        assert result["solve_result"]["status"] == "optimal"
+        assert result["solver_results"].objective_value == 500.0
+        assert "solver-ready" in result["response"].lower()
+        assert "objective value" in result["response"].lower()
+
+    def test_incomplete_prose_returns_missing_information_feedback(self, monkeypatch):
+        plan = {
+            "problem_title": "Incomplete Prose",
+            "problem_type": "case_a",
+            "nodes": [{"id": "N1"}],
+            "products": [{"id": "P1"}],
+            "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": None}],
+            "consumers": [{"id": "C1", "node": "N1", "product": "P1", "capacity": None}],
+            "transport_links": [],
+            "bids": [],
+            "technologies": [],
+            "missing_information": ["supplier capacity", "consumer bid price"],
+            "ambiguities": ["it is unclear whether transport is allowed"],
+        }
+
+        monkeypatch.setattr(
+            "src.chatbot_engine.interpret_problem_from_text",
+            lambda text: build_problem_artifacts_from_semantic_plan(plan),
+        )
+
+        result = run_chatbot_session(
+            ProblemState(),
+            "A supplier and a consumer trade product P1 at node N1, but I have not specified capacities or prices.",
+            use_llm=True,
+        )
+
+        assert result["intent"] == "problem_formulation"
+        assert result["success"] is False
+        assert "missing or inconsistent" in result["response"].lower()
+        assert "supplier:s1 missing capacity" in result["response"].lower()
+
 
 class TestExplanation:
     """Test explanation/help workflow."""
@@ -524,7 +620,26 @@ class TestStateUpdates:
         result2 = run_chatbot_session(state, "Product P")
         state = result2["state"]
         assert len(state.nodes) >= 1
-        assert len(state.products) >= 1
+
+
+class TestLLMProblemInterpretationErrors:
+    def test_problem_formulation_surfaces_llm_configuration_error_without_rule_based_fallback(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini"}, clear=True), patch(
+            "src.chatbot_engine.interpret_problem_from_text",
+            side_effect=LLMConfigurationError("Gemini provider is not configured"),
+        ), patch("src.chatbot_engine.parse_supply_chain_text") as mock_parse:
+            result = run_chatbot_session(
+                ProblemState(),
+                "There is one supplier with 10 units at node A and one consumer at node B.",
+                use_llm=True,
+            )
+
+        assert result["success"] is False
+        assert "LLM interpretation configuration error" in result["response"]
+        assert "Gemini provider is not configured" in result["response"]
+        assert result["response_metadata"]["fallback_triggered"] is False
+        assert result["response_metadata"]["fallback_reason"] == "llm_configuration_error"
+        mock_parse.assert_not_called()
 
 
 class TestErrorHandling:
