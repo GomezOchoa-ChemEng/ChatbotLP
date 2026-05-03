@@ -85,7 +85,9 @@ def validate_state(state: ProblemState) -> Dict:
             except TypeError:
                 missing.append(f"consumer:{c.id} capacity not numeric: {c.capacity}")
 
-    # Check transport links
+    # Check transport links. A missing capacity is interpreted as an
+    # uncapacitated route; model_builder already omits the capacity constraint
+    # when capacity is None.
     for t in state.transport_links:
         if t.origin not in node_ids:
             invalid_refs.append(f"transport:{t.id} unknown origin {t.origin}")
@@ -93,9 +95,7 @@ def validate_state(state: ProblemState) -> Dict:
             invalid_refs.append(f"transport:{t.id} unknown destination {t.destination}")
         if t.product not in product_ids:
             invalid_refs.append(f"transport:{t.id} unknown product {t.product}")
-        if t.capacity is None:
-            missing.append(f"transport:{t.id} missing capacity")
-        else:
+        if t.capacity is not None:
             try:
                 if t.capacity < 0:
                     missing.append(f"transport:{t.id} has negative capacity {t.capacity}")
@@ -103,6 +103,12 @@ def validate_state(state: ProblemState) -> Dict:
                     issues.append(f"transport:{t.id} has zero capacity")
             except TypeError:
                 missing.append(f"transport:{t.id} capacity not numeric: {t.capacity}")
+        try:
+            cost = float(getattr(t, "cost", 0.0))
+            if cost != cost or cost in (float("inf"), float("-inf")):
+                missing.append(f"transport:{t.id} cost is not finite: {cost}")
+        except (TypeError, ValueError):
+            missing.append(f"transport:{t.id} cost not numeric: {getattr(t, 'cost', None)}")
 
     # Check technologies (transformation)
     for tech in state.technologies:

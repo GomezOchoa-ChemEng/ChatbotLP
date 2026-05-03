@@ -126,6 +126,7 @@ Requirements:
 - Preserve every explicit numeric value exactly as written, including negative signs.
 - Do not invent extra nodes, products, links, bids, or technologies just to make the model complete.
 - If something important is missing or ambiguous, keep the missing field as null and record it in missing_information or ambiguities.
+- Put per-unit transportation costs on transport_links[].cost. Do not encode transport costs as supplier or consumer bids.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
 - Keep the structure lightweight and solver-ready.
@@ -139,7 +140,7 @@ Required JSON shape:
   "products": [{{"id": "P1", "name": "optional"}}],
   "suppliers": [{{"id": "S1", "node": "N1", "product": "P1", "capacity": 10.0}}],
   "consumers": [{{"id": "C1", "node": "N2", "product": "P1", "capacity": 10.0}}],
-  "transport_links": [{{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 10.0}}],
+  "transport_links": [{{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 10.0, "cost": 0.0}}],
   "bids": [{{"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 1.0, "quantity": 10.0}}],
   "technologies": [{{"id": "K1", "node": "N1", "capacity": 5.0, "yield_coefficients": {{"P1": -1.0, "P2": 0.8}}}}],
   "missing_information": ["short string"],
@@ -219,6 +220,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
             destination=_resolve_reference(transport_data.get("destination"), node_aliases),
             product=_resolve_reference(transport_data.get("product"), product_aliases),
             capacity=transport_data.get("capacity"),
+            cost=transport_data.get("cost", 0.0) or 0.0,
         )
         state.add_transport(
             transport

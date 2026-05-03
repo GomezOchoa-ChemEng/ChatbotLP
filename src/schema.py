@@ -70,6 +70,13 @@ class TransportLink(BaseModel):
     destination: str
     product: str
     capacity: Optional[float] = None
+    cost: float = 0.0
+
+    @validator("cost")
+    def cost_is_finite(cls, v):
+        if v != v or v in (float("inf"), float("-inf")):
+            raise ValueError("cost must be a finite number")
+        return v
 
 
 class Technology(BaseModel):

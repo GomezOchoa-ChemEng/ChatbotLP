@@ -1,0 +1,29 @@
+{
+  "benchmark_id": "midterm1_manure_q1",
+  "prompts": [
+    {
+      "id": "canonical",
+      "label": "Canonical midterm wording",
+      "expected_solver_ready": true,
+      "text": "A dairy farm in Eau Claire produces 1000 tons of waste manure and wants to get rid of it. The farmer is willing to give the manure away for free. A corn farmer in Menomonie is willing to pay 0.5 dollars per ton for manure and can take at most 500 tons. A soybean farmer in Black River Falls is willing to pay 1.5 dollars per ton and can take at most 500 tons. Transportation costs 0.1 dollars per ton from Eau Claire to Menomonie and 0.2 dollars per ton from Eau Claire to Black River Falls. The cooperative maximizes total profit. What is the optimal manure allocation and can the dairy farmer get rid of all 1000 tons?"
+    },
+    {
+      "id": "paraphrased",
+      "label": "Paraphrased complete wording",
+      "expected_solver_ready": true,
+      "text": "Formulate the manure disposal network as a coordinated supply-chain problem. The Eau Claire dairy has up to 1000 tons of manure available at zero supply cost. Menomonie can receive no more than 500 tons and pays 0.5 dollars per ton. Black River Falls can receive no more than 500 tons and pays 1.5 dollars per ton. Shipping manure from Eau Claire costs 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Maximize cooperative profit."
+    },
+    {
+      "id": "incomplete",
+      "label": "Incomplete capacities",
+      "expected_solver_ready": false,
+      "text": "A dairy farm in Eau Claire has 1000 tons of manure available for free. A corn farm in Menomonie pays 0.5 dollars per ton, and a soybean farm in Black River Falls pays 1.5 dollars per ton. Transportation costs are 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Maximize total profit, but the maximum amounts the two receiving farms can take are not stated."
+    },
+    {
+      "id": "ambiguous",
+      "label": "Ambiguous stakeholder naming",
+      "expected_solver_ready": true,
+      "text": "There is a manure source near Eau Claire with 1000 tons available at no charge. One receiving farm near Menomonie will pay 0.5 dollars per ton and can use at most 500 tons. Another receiving farm near Black River Falls will pay 1.5 dollars per ton and can use at most 500 tons. Hauling costs are 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. The group wants the profit-maximizing allocation."
+    }
+  ]
+}

@@ -82,7 +82,7 @@ class IntentRouter:
             ("solve", re.compile(r"\b(solve|solution|objective|optimize)\b", re.IGNORECASE)),
             ("scenario", re.compile(r"\b(scenario|what.if|what if|modify|change|parameter)\b", re.IGNORECASE)),
             ("theorem_check", re.compile(r"\b(theorem|case [abc]|assumption|applicability)\b", re.IGNORECASE)),
-            ("validation", re.compile(r"\b(validate|check\s+(issues|status|parameters)|ready|issues)\b", re.IGNORECASE)),
+            ("validation", re.compile(r"\b(validate|verify|check\s+(issues|status|parameters)|ready|issues)\b", re.IGNORECASE)),
             ("explanation", re.compile(r"\b(explain|help|hint|guide|how|why|tutorial)\b", re.IGNORECASE)),
             (
                 "problem_formulation",

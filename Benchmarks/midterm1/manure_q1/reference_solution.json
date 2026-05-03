@@ -1,0 +1,40 @@
+{
+  "benchmark_id": "midterm1_manure_q1",
+  "objective_value": 850.0,
+  "demand_revenue": 1000.0,
+  "transport_cost": 150.0,
+  "supply_cost": 0.0,
+  "accepted_supply": {
+    "Dairy/EauClaire": 1000.0
+  },
+  "accepted_demands": {
+    "Menomonie": 500.0,
+    "BlackRiverFalls": 500.0
+  },
+  "transport_flows": {
+    "EauClaire_to_Menomonie": 500.0,
+    "EauClaire_to_BlackRiverFalls": 500.0
+  },
+  "route_net_values": {
+    "EauClaire_to_Menomonie": 0.4,
+    "EauClaire_to_BlackRiverFalls": 1.3
+  },
+  "balance_checks": {
+    "EauClaire": {
+      "supply": 1000.0,
+      "total_outgoing_flow": 1000.0,
+      "holds": true
+    },
+    "Menomonie": {
+      "incoming_flow": 500.0,
+      "accepted_demand": 500.0,
+      "holds": true
+    },
+    "BlackRiverFalls": {
+      "incoming_flow": 500.0,
+      "accepted_demand": 500.0,
+      "holds": true
+    }
+  },
+  "qualitative_answer": "The dairy farmer can get rid of all manure because total profitable demand capacity equals 1000 tons."
+}

@@ -88,6 +88,7 @@ def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
 
     for link in state.transport_links:
         variable_name = f"f_{{{link.origin},{link.destination}}}"
+        transport_cost = float(getattr(link, "cost", 0.0) or 0.0)
         variables.append(
             {
                 "name": variable_name,
@@ -95,15 +96,15 @@ def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
                 "domain": ">= 0",
                 "arc": (link.origin, link.destination),
                 "product_id": link.product,
-                "objective_coefficient": 0.0,
+                "objective_coefficient": -transport_cost,
                 "variable_class": "transport_flow",
             }
         )
         objective_terms.append(
             {
-                "coefficient": 0.0,
+                "coefficient": -transport_cost,
                 "symbol": variable_name,
-                "interpretation": "transport term (explicit cost defaults to 0 in current deterministic model)",
+                "interpretation": "transport cost term",
                 "node": None,
                 "product": link.product,
             }

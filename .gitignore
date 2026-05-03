@@ -16,4 +16,5 @@ build/
 .idea/
 .vscode/
 Thumbs.db
-*.sqlite
+*.sqlitemidterm_outputs/
+paper_grade_outputs/

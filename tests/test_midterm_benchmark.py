@@ -1,0 +1,415 @@
+import json
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path.cwd()))
+
+from src.llm_problem_interpreter import build_state_from_semantic_plan
+from src.midterm_benchmark import (
+    MidtermBenchmarkConfig,
+    build_midterm_manure_expected_plan,
+    compare_problem_states_for_midterm,
+    compare_solution_to_reference,
+    evaluate_primary_semantic_metrics,
+    extract_midterm_solution_components,
+    load_benchmark_files,
+    run_midterm_manure_q1_benchmark,
+)
+
+
+def test_midterm_benchmark_files_load_correctly():
+    files = load_benchmark_files()
+
+    assert "Manure Management" in files["problem_statement"]
+    assert files["reference_solution"]["benchmark_id"] == "midterm1_manure_q1"
+    assert {prompt["id"] for prompt in files["prompts"]} >= {
+        "canonical",
+        "paraphrased",
+        "incomplete",
+        "ambiguous",
+    }
+
+
+def test_reference_solution_has_expected_objective():
+    files = load_benchmark_files()
+
+    assert files["reference_solution"]["objective_value"] == 850.0
+
+
+def test_solution_comparison_detects_objective_and_flow_match():
+    state = build_state_from_semantic_plan(build_midterm_manure_expected_plan("canonical"))
+    reference = load_benchmark_files()["reference_solution"]
+    solve_result = {
+        "success": True,
+        "status": "optimal",
+        "termination_condition": "optimal",
+        "solver_name": "mock",
+        "objective_value": 850.0,
+        "message": "mock solve",
+        "solution": {
+            "q": {
+                "B_Dairy_EauClaire": 1000.0,
+                "B_Menomonie": 500.0,
+                "B_BlackRiverFalls": 500.0,
+            },
+            "f": {
+                "('EauClaire', 'Menomonie')": 500.0,
+                "('EauClaire', 'BlackRiverFalls')": 500.0,
+            },
+            "x": {},
+        },
+    }
+
+    checks = compare_solution_to_reference(state, solve_result, reference)
+
+    assert checks["objective_match"] is True
+    assert checks["accepted_supply_match"] is True
+    assert checks["accepted_demand_match"] is True
+    assert checks["transport_flow_match"] is True
+    assert checks["balance_match"] is True
+
+
+def test_incomplete_prompt_is_not_solver_ready_or_flags_missing_information():
+    report = run_midterm_manure_q1_benchmark(
+        config=MidtermBenchmarkConfig(
+            prompt_ids=("incomplete",),
+            use_llm=False,
+            fallback_to_reference_fixture=True,
+            attempt_solve=False,
+            run_reasoning=False,
+        )
+    )
+    case = report["cases"][0]
+
+    assert case["solver_ready"] is False
+    assert case["validation_result"]["missing_parameters"]
+    assert "missing capacity" in "; ".join(case["validation_result"]["missing_parameters"])
+
+
+def test_no_real_api_key_is_stored_in_notebook():
+    notebook_path = Path("notebooks/MidtermManureQ1Benchmark.ipynb")
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    source = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in notebook["cells"]
+    )
+
+    assignments = re.findall(r'os\.environ\["GEMINI_API_KEY"\]\s*=\s*"([^"]*)"', source)
+    assert assignments
+    assert all(value == "" for value in assignments)
+
+
+def _build_alias_state():
+    return build_state_from_semantic_plan(
+        {
+            "problem_title": "Alias manure state",
+            "problem_type": "case_a",
+            "nodes": [
+                {"id": "EC", "name": "Eau Claire"},
+                {"id": "ME", "name": "Menomonie"},
+                {"id": "BlackRiverFalls", "name": "Black River Falls"},
+            ],
+            "products": [{"id": "P1", "name": "manure"}],
+            "suppliers": [
+                {"id": "S_DAIRY", "node": "EC", "product": "P1", "capacity": 1000.0}
+            ],
+            "consumers": [
+                {"id": "C_CORN", "node": "ME", "product": "P1", "capacity": 500.0},
+                {
+                    "id": "BlackRiverFalls",
+                    "node": "BlackRiverFalls",
+                    "product": "P1",
+                    "capacity": 500.0,
+                },
+            ],
+            "transport_links": [
+                {
+                    "id": "EC_to_ME",
+                    "origin": "EC",
+                    "destination": "ME",
+                    "product": "P1",
+                    "capacity": None,
+                    "cost": 0.1,
+                },
+                {
+                    "id": "EC_to_BlackRiverFalls",
+                    "origin": "EC",
+                    "destination": "BlackRiverFalls",
+                    "product": "P1",
+                    "capacity": None,
+                    "cost": 0.2,
+                },
+            ],
+            "technologies": [],
+            "bids": [
+                {
+                    "id": "B_SUPPLY",
+                    "owner_id": "S_DAIRY",
+                    "owner_type": "supplier",
+                    "product_id": "P1",
+                    "price": 0.0,
+                    "quantity": 1000.0,
+                },
+                {
+                    "id": "B_CORN",
+                    "owner_id": "C_CORN",
+                    "owner_type": "consumer",
+                    "product_id": "P1",
+                    "price": 0.5,
+                    "quantity": 500.0,
+                },
+                {
+                    "id": "B_SOYBEAN",
+                    "owner_id": "BlackRiverFalls",
+                    "owner_type": "consumer",
+                    "product_id": "P1",
+                    "price": 1.5,
+                    "quantity": 500.0,
+                },
+            ],
+        }
+    )
+
+
+def _alias_solve_result():
+    return {
+        "success": True,
+        "status": "optimal",
+        "termination_condition": "optimal",
+        "solver_name": "mock",
+        "objective_value": 850.0,
+        "message": "mock solve",
+        "solution": {
+            "q": {
+                "B_SUPPLY": 1000.0,
+                "B_CORN": 500.0,
+                "B_SOYBEAN": 500.0,
+            },
+            "f": {
+                "EC_to_ME": 500.0,
+                "EC_to_BlackRiverFalls": 500.0,
+            },
+            "x": {},
+        },
+    }
+
+
+def _build_id_independent_state(menomonie_node="M", corn_consumer_id="C1", first_link_id="T1"):
+    return build_state_from_semantic_plan(
+        {
+            "problem_title": "ID-independent manure state",
+            "problem_type": "case_a",
+            "nodes": [
+                {"id": "SRC", "name": "dairy source"},
+                {"id": menomonie_node, "name": "corn demand"},
+                {"id": "SINK2", "name": "soybean demand"},
+            ],
+            "products": [{"id": "P1", "name": "manure"}],
+            "suppliers": [
+                {"id": "S1", "node": "SRC", "product": "P1", "capacity": 1000.0}
+            ],
+            "consumers": [
+                {"id": corn_consumer_id, "node": menomonie_node, "product": "P1", "capacity": 500.0},
+                {"id": "C2", "node": "SINK2", "product": "P1", "capacity": 500.0},
+            ],
+            "transport_links": [
+                {
+                    "id": first_link_id,
+                    "origin": "SRC",
+                    "destination": menomonie_node,
+                    "product": "P1",
+                    "capacity": None,
+                    "cost": 0.1,
+                },
+                {
+                    "id": "T2",
+                    "origin": "SRC",
+                    "destination": "SINK2",
+                    "product": "P1",
+                    "capacity": None,
+                    "cost": 0.2,
+                },
+            ],
+            "technologies": [],
+            "bids": [
+                {
+                    "id": "B_SUPPLY",
+                    "owner_id": "S1",
+                    "owner_type": "supplier",
+                    "product_id": "P1",
+                    "price": 0.0,
+                    "quantity": 1000.0,
+                },
+                {
+                    "id": "B_CORN",
+                    "owner_id": corn_consumer_id,
+                    "owner_type": "consumer",
+                    "product_id": "P1",
+                    "price": 0.5,
+                    "quantity": 500.0,
+                },
+                {
+                    "id": "B_SOYBEAN",
+                    "owner_id": "C2",
+                    "owner_type": "consumer",
+                    "product_id": "P1",
+                    "price": 1.5,
+                    "quantity": 500.0,
+                },
+            ],
+        }
+    )
+
+
+def _id_independent_solve_result(first_link_id="T1", first_flow=500.0, second_flow=500.0, objective=850.0):
+    return {
+        "success": True,
+        "status": "optimal",
+        "termination_condition": "optimal",
+        "solver_name": "mock",
+        "objective_value": objective,
+        "message": "mock solve",
+        "solution": {
+            "q": {
+                "B_SUPPLY": 1000.0,
+                "B_CORN": 500.0,
+                "B_SOYBEAN": 500.0,
+            },
+            "f": {
+                first_link_id: first_flow,
+                "T2": second_flow,
+            },
+            "x": {},
+        },
+    }
+
+
+def _primary_metrics_for(state, solve_result=None):
+    return evaluate_primary_semantic_metrics(
+        state,
+        solve_result or _id_independent_solve_result(),
+        load_benchmark_files()["reference_solution"],
+    )
+
+
+def _metric(metrics, group, name):
+    return next(row for row in metrics[group] if row["metric"] == name)
+
+
+def test_midterm_aliases_match_reference_solution_components():
+    state = _build_alias_state()
+    reference = load_benchmark_files()["reference_solution"]
+
+    checks = compare_solution_to_reference(state, _alias_solve_result(), reference)
+
+    assert checks["accepted_supply_match"] is True
+    assert checks["accepted_demand_match"] is True
+    assert checks["transport_flow_match"] is True
+    assert checks["balance_match"] is True
+    assert checks["accepted_supply_total_match"] is True
+
+    components = checks["actual_components"]
+    assert components["accepted_supply"] == {"Dairy/EauClaire": 1000.0}
+    assert components["accepted_demands"]["Menomonie"] == 500.0
+    assert components["transport_flows"]["EauClaire_to_Menomonie"] == 500.0
+
+
+def test_midterm_aliases_are_benign_identifier_mismatches_structurally():
+    expected = build_state_from_semantic_plan(build_midterm_manure_expected_plan("canonical"))
+    actual = _build_alias_state()
+
+    comparison = compare_problem_states_for_midterm(expected, actual)
+
+    assert comparison["structural_match"] is True
+    assert comparison["blocking_errors"] == []
+    assert comparison["benign_identifier_mismatches"]
+    assert "benign_identifier_mismatch" in comparison["error_categories"]
+
+
+def test_balance_checks_pass_under_alias_resolved_ids():
+    components = extract_midterm_solution_components(_build_alias_state(), _alias_solve_result())
+
+    assert components["balance_checks"]["EauClaire"]["supply"] == 1000.0
+    assert components["balance_checks"]["EauClaire"]["total_outgoing_flow"] == 1000.0
+    assert components["balance_checks"]["EauClaire"]["holds"] is True
+    assert components["balance_checks"]["Menomonie"]["incoming_flow"] == 500.0
+    assert components["balance_checks"]["Menomonie"]["accepted_demand"] == 500.0
+    assert components["balance_checks"]["Menomonie"]["holds"] is True
+    assert components["balance_checks"]["BlackRiverFalls"]["incoming_flow"] == 500.0
+    assert components["balance_checks"]["BlackRiverFalls"]["accepted_demand"] == 500.0
+    assert components["balance_checks"]["BlackRiverFalls"]["holds"] is True
+
+
+@pytest.mark.parametrize("menomonie_node", ["M", "MN"])
+def test_primary_metrics_pass_with_id_artifacts(menomonie_node):
+    state = _build_id_independent_state(
+        menomonie_node=menomonie_node,
+        corn_consumer_id="C1",
+        first_link_id="T1",
+    )
+    solve_result = _id_independent_solve_result(first_link_id="T1")
+
+    metrics = _primary_metrics_for(state, solve_result)
+
+    assert metrics["semantic_structure_pass"] is True
+    assert metrics["solver_aggregate_pass"] is True
+    assert metrics["balance_residual_pass"] is True
+    assert metrics["primary_success"] is True
+    assert _metric(metrics, "route_economics_metrics", "sorted_route_net_values")["pass"] is True
+    assert _metric(metrics, "solver_aggregate_metrics", "sorted_active_flow_values")["pass"] is True
+
+
+def test_primary_metrics_fail_for_wrong_number_of_consumers():
+    state = _build_id_independent_state()
+    state.consumers = state.consumers[:1]
+
+    metrics = _primary_metrics_for(state)
+
+    assert metrics["semantic_structure_pass"] is False
+    assert _metric(metrics, "semantic_count_metrics", "demand_consumer_entities")["pass"] is False
+
+
+def test_primary_metrics_fail_for_wrong_consumer_price_and_transport_cost():
+    state = _build_id_independent_state()
+    state.bids[1].price = 0.6
+    price_metrics = _primary_metrics_for(state)
+
+    assert price_metrics["semantic_structure_pass"] is False
+    assert _metric(price_metrics, "parameter_multiset_metrics", "consumer_bid_prices")["pass"] is False
+
+    state = _build_id_independent_state()
+    state.transport_links[0].cost = 0.15
+    cost_metrics = _primary_metrics_for(state)
+
+    assert cost_metrics["semantic_structure_pass"] is False
+    assert _metric(cost_metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is False
+
+
+def test_primary_metrics_fail_for_wrong_objective_and_active_flow_values():
+    state = _build_id_independent_state()
+    wrong_objective = _id_independent_solve_result(objective=840.0)
+
+    objective_metrics = _primary_metrics_for(state, wrong_objective)
+
+    assert objective_metrics["solver_aggregate_pass"] is False
+    assert _metric(objective_metrics, "solver_aggregate_metrics", "objective_value")["pass"] is False
+
+    wrong_flows = _id_independent_solve_result(first_flow=600.0, second_flow=400.0)
+    flow_metrics = _primary_metrics_for(state, wrong_flows)
+
+    assert flow_metrics["solver_aggregate_pass"] is False
+    assert _metric(flow_metrics, "solver_aggregate_metrics", "sorted_active_flow_values")["pass"] is False
+
+
+def test_primary_balance_residual_metrics_fail_when_balances_do_not_hold():
+    state = _build_id_independent_state()
+    wrong_flows = _id_independent_solve_result(first_flow=600.0, second_flow=400.0)
+
+    metrics = _primary_metrics_for(state, wrong_flows)
+
+    assert metrics["balance_residual_pass"] is False
+    assert _metric(metrics, "balance_residual_metrics", "max_abs_balance_residual")["pass"] is False
+    assert _metric(metrics, "balance_residual_metrics", "balance_violation_count")["actual"] > 0
