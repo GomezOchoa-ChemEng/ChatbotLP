@@ -1035,6 +1035,11 @@ def evaluate_primary_semantic_metrics(
     technology_rows = _technology_yield_metric_rows(state, reference_solution, tolerance)
     route_rows = _route_economics_metric_rows(state, reference_solution, tolerance)
     route_association_rows = _route_association_metric_rows(state, reference_solution, tolerance)
+    transport_attribute_rows = _transport_link_attribute_metric_rows(
+        state,
+        reference_solution,
+        tolerance,
+    )
     solver_rows = _solver_aggregate_metric_rows(state, solve_result, reference_solution, tolerance)
     balance_rows = _balance_residual_metric_rows(state, solve_result, tolerance)
     solve_correctness_rows = _solve_correctness_metric_rows(
@@ -1050,6 +1055,7 @@ def evaluate_primary_semantic_metrics(
         parameter_rows=parameter_rows,
         topology_rows=topology_rows,
         technology_rows=technology_rows,
+        transport_attribute_rows=transport_attribute_rows,
         route_association_rows=route_association_rows,
         tolerance=tolerance,
         semantic_plan=semantic_plan,
@@ -1062,7 +1068,11 @@ def evaluate_primary_semantic_metrics(
         for row in rows
     )
     technology_structure_pass = all(bool(row["pass"]) for row in technology_rows)
-    route_association_pass = all(bool(row["pass"]) for row in route_association_rows)
+    route_attribute_binding_pass = all(bool(row["pass"]) for row in transport_attribute_rows)
+    route_association_pass = (
+        all(bool(row["pass"]) for row in route_association_rows)
+        and route_attribute_binding_pass
+    )
     solver_aggregate_pass = all(bool(row["pass"]) for row in solver_rows)
     balance_residual_pass = all(bool(row["pass"]) for row in balance_rows)
     formulation_completeness_pass = all(bool(row["pass"]) for row in formulation_rows)
@@ -1083,6 +1093,7 @@ def evaluate_primary_semantic_metrics(
         solve_correctness_pass=solve_correctness_pass,
         reasoning_ready_pass=reasoning_ready_pass,
         route_association_rows=route_association_rows,
+        transport_attribute_rows=transport_attribute_rows,
     )
 
     return {
@@ -1092,6 +1103,7 @@ def evaluate_primary_semantic_metrics(
         "technology_yield_metrics": technology_rows,
         "route_economics_metrics": route_rows,
         "route_association_metrics": route_association_rows,
+        "transport_link_attribute_metrics": transport_attribute_rows,
         "solver_aggregate_metrics": solver_rows,
         "balance_residual_metrics": balance_rows,
         "formulation_completeness_metrics": formulation_rows,
@@ -1099,6 +1111,7 @@ def evaluate_primary_semantic_metrics(
         "reasoning_readiness_metrics": reasoning_rows,
         "semantic_structure_pass": semantic_structure_pass,
         "technology_structure_pass": technology_structure_pass,
+        "route_attribute_binding_pass": route_attribute_binding_pass,
         "route_association_pass": route_association_pass,
         "solver_aggregate_pass": solver_aggregate_pass,
         "balance_residual_pass": balance_residual_pass,
@@ -1440,6 +1453,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
     technology_rows = []
     route_rows = []
     route_association_rows = []
+    transport_attribute_rows = []
     aggregate_rows = []
     residual_rows = []
     formulation_rows = []
@@ -1457,6 +1471,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         benign_identifier_count = len(comparison.get("benign_identifier_mismatches", []))
         semantic_structure_pass = bool(primary_metrics.get("semantic_structure_pass", False))
         technology_structure_pass = bool(primary_metrics.get("technology_structure_pass", True))
+        route_attribute_binding_pass = bool(primary_metrics.get("route_attribute_binding_pass", True))
         route_association_pass = bool(primary_metrics.get("route_association_pass", True))
         solver_aggregate_pass = bool(primary_metrics.get("solver_aggregate_pass", False))
         balance_residual_pass = bool(primary_metrics.get("balance_residual_pass", False))
@@ -1492,6 +1507,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
                 "structural_match": semantic_structure_pass,
                 "semantic_structure_pass": semantic_structure_pass,
                 "technology_structure_pass": technology_structure_pass,
+                "route_attribute_binding_pass": route_attribute_binding_pass,
                 "route_association_pass": route_association_pass,
                 "solver_aggregate_pass": solver_aggregate_pass,
                 "balance_residual_pass": balance_residual_pass,
@@ -1584,6 +1600,8 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
             route_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("route_association_metrics", []):
             route_association_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in primary_metrics.get("transport_link_attribute_metrics", []):
+            transport_attribute_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("solver_aggregate_metrics", []):
             aggregate_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("balance_residual_metrics", []):
@@ -1607,6 +1625,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         "technology_yield_metrics": pd.DataFrame(technology_rows),
         "route_economics_metrics": pd.DataFrame(route_rows),
         "route_association_metrics": pd.DataFrame(route_association_rows),
+        "transport_link_attribute_metrics": pd.DataFrame(transport_attribute_rows),
         "solver_aggregate_metrics": pd.DataFrame(aggregate_rows),
         "balance_residual_metrics": pd.DataFrame(residual_rows),
         "formulation_completeness_metrics": pd.DataFrame(formulation_rows),
@@ -1757,6 +1776,7 @@ def _empty_primary_metrics(reason: str) -> Dict[str, Any]:
         "technology_yield_metrics": [],
         "route_economics_metrics": [],
         "route_association_metrics": [],
+        "transport_link_attribute_metrics": [],
         "solver_aggregate_metrics": [],
         "balance_residual_metrics": [],
         "formulation_completeness_metrics": [
@@ -1776,6 +1796,7 @@ def _empty_primary_metrics(reason: str) -> Dict[str, Any]:
         ),
         "semantic_structure_pass": False,
         "technology_structure_pass": False,
+        "route_attribute_binding_pass": False,
         "route_association_pass": False,
         "solver_aggregate_pass": False,
         "balance_residual_pass": False,
@@ -2352,6 +2373,181 @@ def _compost_pathway_association_row(
     }
 
 
+def _transport_link_attribute_metric_rows(
+    state: ProblemState,
+    reference_solution: Dict[str, Any],
+    tolerance: float,
+) -> List[Dict[str, Any]]:
+    """Report route-attribute binding for expected and interpreted transport links."""
+
+    expected_specs = _reference_transport_link_expectations(reference_solution)
+    if not expected_specs:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    matched_actual_ids = set()
+    expected_costs = [
+        float(spec["cost"])
+        for spec in expected_specs
+        if spec.get("cost") is not None
+    ]
+
+    for spec in expected_specs:
+        link = _find_transport_link_by_semantic_route(
+            state,
+            spec.get("origin"),
+            spec.get("destination"),
+            spec.get("product"),
+        )
+        if link is not None:
+            matched_actual_ids.add(link.id)
+        rows.append(
+            _transport_link_attribute_row(
+                expected_spec=spec,
+                actual_link=link,
+                expected_costs=expected_costs,
+                tolerance=tolerance,
+                row_kind="expected_route",
+            )
+        )
+
+    expected_keys = {
+        (
+            _canonical_node_key(spec.get("origin")),
+            _canonical_node_key(spec.get("destination")),
+            _canonical_product_key(spec.get("product")),
+        )
+        for spec in expected_specs
+    }
+    for link in state.transport_links:
+        actual_key = (
+            _canonical_node_key(link.origin),
+            _canonical_node_key(link.destination),
+            _canonical_product_key_for_state(state, link.product),
+        )
+        if link.id in matched_actual_ids or actual_key in expected_keys:
+            continue
+        rows.append(
+            _transport_link_attribute_row(
+                expected_spec=None,
+                actual_link=link,
+                expected_costs=expected_costs,
+                tolerance=tolerance,
+                row_kind="extra_interpreted_route",
+            )
+        )
+    return rows
+
+
+def _transport_link_attribute_row(
+    expected_spec: Optional[Dict[str, Any]],
+    actual_link: Any,
+    expected_costs: Sequence[float],
+    tolerance: float,
+    row_kind: str,
+) -> Dict[str, Any]:
+    label = (
+        _transport_expectation_label(expected_spec)
+        if expected_spec is not None
+        else _transport_link_label(actual_link)
+    )
+    expected_origin = expected_spec.get("origin") if expected_spec is not None else None
+    expected_destination = expected_spec.get("destination") if expected_spec is not None else None
+    expected_product = expected_spec.get("product") if expected_spec is not None else None
+    expected_capacity = expected_spec.get("capacity") if expected_spec is not None else None
+    expected_cost = expected_spec.get("cost") if expected_spec is not None else None
+
+    origin = getattr(actual_link, "origin", None)
+    destination = getattr(actual_link, "destination", None)
+    product = getattr(actual_link, "product", None)
+    capacity = getattr(actual_link, "capacity", None)
+    cost = (
+        float(getattr(actual_link, "cost", 0.0) or 0.0)
+        if actual_link is not None
+        else None
+    )
+    required_present = (
+        actual_link is not None
+        and origin is not None
+        and destination is not None
+        and product is not None
+        and (expected_capacity is None or capacity is not None)
+        and (expected_cost is None or cost is not None)
+    )
+    route_matches = (
+        actual_link is not None
+        and expected_spec is not None
+        and _canonical_node_key(origin) == _canonical_node_key(expected_origin)
+        and _canonical_node_key(destination) == _canonical_node_key(expected_destination)
+        and _canonical_product_key(product) == _canonical_product_key(expected_product)
+    )
+    capacity_matches = _optional_float_matches(capacity, expected_capacity, tolerance)
+    cost_matches = _optional_float_matches(cost, expected_cost, tolerance)
+    passed = (
+        row_kind == "expected_route"
+        and route_matches
+        and required_present
+        and capacity_matches
+        and cost_matches
+    )
+    cost_binding_error = (
+        row_kind == "expected_route"
+        and route_matches
+        and expected_cost is not None
+        and cost is not None
+        and not cost_matches
+        and any(
+            abs(float(cost) - expected_cost_value) <= tolerance
+            for expected_cost_value in expected_costs
+            if abs(expected_cost_value - float(expected_cost)) > tolerance
+        )
+    )
+    route_complete_for_reasoning = (
+        row_kind == "expected_route"
+        and route_matches
+        and required_present
+        and capacity_matches
+        and cost_matches
+    )
+    if passed:
+        reason = "pass"
+    elif row_kind == "extra_interpreted_route":
+        reason = "interpreted transport link is not present in reference route records"
+    elif actual_link is None:
+        reason = "expected transport link is missing"
+    elif cost_binding_error:
+        reason = "route cost is a known expected cost but is attached to the wrong route"
+    elif not capacity_matches:
+        reason = "route capacity is missing or does not match the expected route record"
+    elif not cost_matches:
+        reason = "route cost is missing or does not match the expected route record"
+    else:
+        reason = "origin, destination, product, cost, or capacity is not bound to the expected route record"
+
+    return {
+        "metric": f"transport_link_attributes:{label}",
+        "row_kind": row_kind,
+        "origin": origin,
+        "destination": destination,
+        "product": product,
+        "capacity": capacity,
+        "cost": cost,
+        "expected_origin": expected_origin,
+        "expected_destination": expected_destination,
+        "expected_product": expected_product,
+        "expected_capacity": expected_capacity,
+        "expected_cost": expected_cost,
+        "all_required_route_attributes_present": required_present,
+        "route_complete_for_reasoning": route_complete_for_reasoning,
+        "route_matches": route_matches,
+        "capacity_matches": capacity_matches,
+        "cost_matches": cost_matches,
+        "route_cost_binding_error": cost_binding_error,
+        "pass": bool(passed),
+        "reason": reason,
+    }
+
+
 def _formulation_completeness_metric_rows(
     state: ProblemState,
     reference_solution: Dict[str, Any],
@@ -2359,6 +2555,7 @@ def _formulation_completeness_metric_rows(
     parameter_rows: Sequence[Dict[str, Any]],
     topology_rows: Sequence[Dict[str, Any]],
     technology_rows: Sequence[Dict[str, Any]],
+    transport_attribute_rows: Sequence[Dict[str, Any]],
     route_association_rows: Sequence[Dict[str, Any]],
     tolerance: float,
     semantic_plan: Optional[Dict[str, Any]] = None,
@@ -2414,6 +2611,16 @@ def _formulation_completeness_metric_rows(
             prose_input=prose_input,
         )
     )
+    for row in transport_attribute_rows:
+        rows.append(
+            _formulation_metric_row(
+                f"transport_attribute:{row['metric']}",
+                _transport_attribute_expected_payload(row),
+                _transport_attribute_actual_payload(row),
+                bool(row.get("pass", False)),
+                row.get("reason") or "transport link attributes must remain bound to the correct route",
+            )
+        )
     for row in technology_rows:
         rows.append(
             _formulation_metric_row(
@@ -2631,11 +2838,14 @@ def _classify_primary_failure(
     solve_correctness_pass: bool,
     reasoning_ready_pass: bool,
     route_association_rows: Sequence[Dict[str, Any]],
+    transport_attribute_rows: Sequence[Dict[str, Any]],
 ) -> str:
     if formulation_completeness_pass and solve_correctness_pass and reasoning_ready_pass:
         return "none"
+    if any(bool(row.get("route_cost_binding_error")) for row in transport_attribute_rows):
+        return "route_cost_binding_error"
     if any(bool(row.get("association_error")) for row in route_association_rows):
-        return "route_cost_association_error"
+        return "route_cost_binding_error"
     if not formulation_completeness_pass and solve_correctness_pass:
         return "incomplete_formulation_but_solution_equivalent"
     if not formulation_completeness_pass and not solve_correctness_pass:
@@ -2720,6 +2930,28 @@ def _route_association_actual_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _transport_attribute_expected_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "origin": row.get("expected_origin"),
+        "destination": row.get("expected_destination"),
+        "product": row.get("expected_product"),
+        "capacity": row.get("expected_capacity"),
+        "cost": row.get("expected_cost"),
+    }
+
+
+def _transport_attribute_actual_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "origin": row.get("origin"),
+        "destination": row.get("destination"),
+        "product": row.get("product"),
+        "capacity": row.get("capacity"),
+        "cost": row.get("cost"),
+        "all_required_route_attributes_present": row.get("all_required_route_attributes_present"),
+        "route_complete_for_reasoning": row.get("route_complete_for_reasoning"),
+    }
+
+
 def _reference_transport_link_expectations(reference_solution: Dict[str, Any]) -> List[Dict[str, Any]]:
     specs = _expected_semantic_metrics(reference_solution).get("transport_links", [])
     if not isinstance(specs, list):
@@ -2794,6 +3026,16 @@ def _transport_expectation_label(spec: Dict[str, Any]) -> str:
         f"{_canonical_node_key(spec.get('origin'))}"
         f"_to_{_canonical_node_key(spec.get('destination'))}"
         f":{_canonical_product_key(spec.get('product'))}"
+    )
+
+
+def _transport_link_label(link: Any) -> str:
+    if link is None:
+        return "missing"
+    return (
+        f"{_canonical_node_key(getattr(link, 'origin', None))}"
+        f"_to_{_canonical_node_key(getattr(link, 'destination', None))}"
+        f":{_canonical_product_key(getattr(link, 'product', None))}"
     )
 
 
@@ -3522,6 +3764,7 @@ def _primary_failure_count(primary_metrics: Dict[str, Any]) -> int:
             "technology_yield_metrics",
             "route_economics_metrics",
             "route_association_metrics",
+            "transport_link_attribute_metrics",
             "solver_aggregate_metrics",
             "balance_residual_metrics",
             "formulation_completeness_metrics",

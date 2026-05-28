@@ -126,13 +126,20 @@ Requirements:
 - Preserve every explicit numeric value exactly as written, including negative signs.
 - Do not invent extra nodes, products, links, bids, or technologies just to make the model complete.
 - If something important is missing or ambiguous, keep the missing field as null and record it in missing_information or ambiguities.
+- Extract each transport link as one complete structured record. A transport link record is the binding of origin, destination, product, cost, and capacity.
 - Put per-unit transportation costs on transport_links[].cost. Do not encode transport costs as supplier or consumer bids.
-- Attach destination-specific transportation costs to the correct transport links. If prose says transportation cost to one destination is 0.1 and to another destination is 0.2, the link to the first destination must have cost 0.1 and the link to the second destination must have cost 0.2.
-- Do not treat transport costs as unordered numerical values. Preserve product-specific and destination-specific transport costs on the matching links.
+- Route-specific costs must remain attached to the route named in the prose. Do not extract costs as an unordered multiset.
+- Do not treat transport costs as unordered numerical values.
+- Do not assign route costs by position if the prose links them to destinations.
+- If prose says cost to A is x and cost to B is y, the link whose destination is A must have cost x and the link whose destination is B must have cost y.
+- If prose says from source to A costs x and from source to B costs y, preserve those origin-destination-cost bindings exactly.
+- If product-specific routes exist, preserve the product with the route.
+- If a technology or intermediate processing node exists, preserve the routes entering and leaving that node as separate transport link records.
 - If route capacities are stated collectively, expand them to every affected transport link.
 - If prose says all transport links have capacity 1000, assign capacity 1000 to every transport link.
-- If prose gives product-specific collective capacity statements such as all manure routes have capacity 1000 and the compost route has capacity 1000, assign those capacities to the matching product-specific routes.
+- If prose gives product-specific collective capacity statements, assign those capacities to the matching product-specific routes.
 - Do not leave transport_links[].capacity null when a collective capacity statement applies.
+- Do not list transport costs or capacities separately from transport_links; store them in each individual transport link record.
 - Put per-unit technology operating costs on technologies[].cost when a transformation cost is stated.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
@@ -153,6 +160,8 @@ Required JSON shape:
   "missing_information": ["short string"],
   "ambiguities": ["short string"]
 }}
+
+For transport_links, capacity and cost must be numbers when stated and null only when genuinely unstated.
 
 Problem description:
 {text}

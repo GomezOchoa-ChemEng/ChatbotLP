@@ -619,6 +619,165 @@ def _primary_q4_metrics_for(state, solve_result):
     )
 
 
+def _generic_transport_reference():
+    return {
+        "benchmark_id": "generic_transport_binding",
+        "objective_value": 1250.0,
+        "demand_revenue": 1500.0,
+        "transport_cost": 250.0,
+        "supply_cost": 0.0,
+        "accepted_supply": {"S_SUP": 100.0},
+        "accepted_demands": {"C_A": 50.0, "C_B": 50.0},
+        "transport_flows": {"S_to_A:X": 50.0, "S_to_B:X": 50.0},
+        "route_net_values": {"S_to_A:X": 8.0, "S_to_B:X": 17.0},
+        "expected_semantic_metrics": {
+            "entity_counts": {
+                "products": 1,
+                "source_supplier_entities": 1,
+                "demand_consumer_entities": 2,
+                "transport_paths": 2,
+                "technologies": 0,
+            },
+            "supplier_capacities": [100.0],
+            "consumer_capacities": [50.0, 50.0],
+            "consumer_bid_prices": [10.0, 20.0],
+            "supplier_bid_prices": [0.0],
+            "transport_costs": [2.0, 3.0],
+            "transport_capacities": [100.0, 100.0],
+            "transport_product_semantics": ["X", "X"],
+            "route_net_values": [8.0, 17.0],
+            "transport_links": [
+                {
+                    "role": "destination A route",
+                    "origin": "S",
+                    "destination": "A",
+                    "product": "X",
+                    "capacity": 100.0,
+                    "cost": 2.0,
+                },
+                {
+                    "role": "destination B route",
+                    "origin": "S",
+                    "destination": "B",
+                    "product": "X",
+                    "capacity": 100.0,
+                    "cost": 3.0,
+                },
+            ],
+            "solver_aggregates": {
+                "objective_value": 1250.0,
+                "demand_revenue": 1500.0,
+                "transport_cost": 250.0,
+                "supply_cost": 0.0,
+                "supply_contribution": -0.0,
+                "technology_cost": 0.0,
+                "total_accepted_supply": 100.0,
+                "total_accepted_demand": 100.0,
+                "total_transport_flow": 100.0,
+                "active_transport_routes": 2,
+                "sorted_active_flow_values": [50.0, 50.0],
+                "sorted_accepted_demand_values": [50.0, 50.0],
+            },
+        },
+    }
+
+
+def _build_generic_transport_state(
+    first_cost=2.0,
+    second_cost=3.0,
+    first_capacity=100.0,
+    second_capacity=100.0,
+):
+    return build_state_from_semantic_plan(
+        {
+            "problem_title": "Generic route attribute binding",
+            "problem_type": "case_a",
+            "nodes": [
+                {"id": "S", "name": "Source"},
+                {"id": "A", "name": "Destination A"},
+                {"id": "B", "name": "Destination B"},
+            ],
+            "products": [{"id": "X", "name": "Product X"}],
+            "suppliers": [
+                {"id": "S_SUP", "node": "S", "product": "X", "capacity": 100.0}
+            ],
+            "consumers": [
+                {"id": "C_A", "node": "A", "product": "X", "capacity": 50.0},
+                {"id": "C_B", "node": "B", "product": "X", "capacity": 50.0},
+            ],
+            "transport_links": [
+                {
+                    "id": "arbitrary_first_link_id",
+                    "origin": "S",
+                    "destination": "A",
+                    "product": "X",
+                    "capacity": first_capacity,
+                    "cost": first_cost,
+                },
+                {
+                    "id": "arbitrary_second_link_id",
+                    "origin": "S",
+                    "destination": "B",
+                    "product": "X",
+                    "capacity": second_capacity,
+                    "cost": second_cost,
+                },
+            ],
+            "technologies": [],
+            "bids": [
+                {
+                    "id": "B_SUPPLY",
+                    "owner_id": "S_SUP",
+                    "owner_type": "supplier",
+                    "product_id": "X",
+                    "price": 0.0,
+                    "quantity": 100.0,
+                },
+                {
+                    "id": "B_A",
+                    "owner_id": "C_A",
+                    "owner_type": "consumer",
+                    "product_id": "X",
+                    "price": 10.0,
+                    "quantity": 50.0,
+                },
+                {
+                    "id": "B_B",
+                    "owner_id": "C_B",
+                    "owner_type": "consumer",
+                    "product_id": "X",
+                    "price": 20.0,
+                    "quantity": 50.0,
+                },
+            ],
+        }
+    )
+
+
+def _generic_transport_solve_result(objective=1250.0):
+    return {
+        "success": True,
+        "status": "optimal",
+        "termination_condition": "optimal",
+        "solver_name": "mock",
+        "objective_value": objective,
+        "message": "mock solve",
+        "solution": {
+            "q": {"B_SUPPLY": 100.0, "B_A": 50.0, "B_B": 50.0},
+            "f": {"arbitrary_first_link_id": 50.0, "arbitrary_second_link_id": 50.0},
+            "x": {},
+        },
+    }
+
+
+def _primary_generic_transport_metrics_for(state, solve_result=None):
+    return evaluate_primary_semantic_metrics(
+        state,
+        solve_result or _generic_transport_solve_result(),
+        _generic_transport_reference(),
+    )
+
+
 def _metric(metrics, group, name):
     return next(row for row in metrics[group] if row["metric"] == name)
 
@@ -862,6 +1021,70 @@ def test_q4_solution_comparison_detects_compost_allocation_match():
     assert checks["balance_match"] is True
 
 
+def test_generic_two_destination_swapped_route_costs_fail_formulation_completeness():
+    state = _build_generic_transport_state(first_cost=3.0, second_cost=2.0)
+    metrics = _primary_generic_transport_metrics_for(state)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert metrics["route_attribute_binding_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_binding_error"
+    first_route = _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:S_to_A:X",
+    )
+    assert first_route["route_cost_binding_error"] is True
+    assert first_route["cost"] == 3.0
+    assert first_route["expected_cost"] == 2.0
+
+
+def test_generic_cost_multiset_is_insufficient_when_route_cost_binding_is_wrong():
+    state = _build_generic_transport_state(first_cost=3.0, second_cost=2.0)
+    metrics = _primary_generic_transport_metrics_for(state)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:S_to_A:X",
+    )["pass"] is False
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:S_to_B:X",
+    )["pass"] is False
+
+
+def test_generic_collective_capacities_expanded_to_each_route_pass():
+    state = _build_generic_transport_state(first_capacity=100.0, second_capacity=100.0)
+    metrics = _primary_generic_transport_metrics_for(state)
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["route_attribute_binding_pass"] is True
+    assert metrics["primary_success"] is True
+    assert all(row["route_complete_for_reasoning"] for row in metrics["transport_link_attribute_metrics"])
+
+
+def test_generic_missing_one_route_capacity_fails_formulation_completeness():
+    state = _build_generic_transport_state(first_capacity=100.0, second_capacity=None)
+    metrics = _primary_generic_transport_metrics_for(state)
+
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["reasoning_ready_pass"] is False
+    assert metrics["primary_success"] is False
+    missing_capacity = _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:S_to_B:X",
+    )
+    assert missing_capacity["capacity"] is None
+    assert missing_capacity["expected_capacity"] == 100.0
+    assert missing_capacity["route_complete_for_reasoning"] is False
+
+
 def test_q4_primary_metrics_pass_with_id_artifacts_and_compost_technology():
     state = _build_q4_id_independent_state()
     solve_result = _q4_id_independent_solve_result()
@@ -880,6 +1103,7 @@ def test_q4_primary_metrics_pass_with_id_artifacts_and_compost_technology():
     assert metrics["failure_type"] == "none"
     assert _metric(metrics, "semantic_count_metrics", "products_include_compost")["pass"] is True
     assert _metric(metrics, "technology_yield_metrics", "technology_output_coefficients")["pass"] is True
+    assert _metric(metrics, "transport_link_attribute_metrics", "transport_link_attributes:EauClaire_to_Menomonie:Manure")["pass"] is True
     assert _metric(metrics, "route_economics_metrics", "technology_pathway_net_values_per_input")["pass"] is True
     assert _metric(metrics, "route_association_metrics", "route_association:Menomonie")["pass"] is True
     assert _metric(metrics, "route_association_metrics", "route_association:Black River Falls")["pass"] is True
@@ -889,7 +1113,7 @@ def test_q4_primary_metrics_pass_with_id_artifacts_and_compost_technology():
     assert _metric(metrics, "solver_aggregate_metrics", "technology_activity")["pass"] is True
 
 
-def test_q4_route_association_fails_when_menomonie_and_black_river_costs_are_swapped():
+def test_q4_canonical_fails_with_route_cost_binding_error_when_costs_are_swapped():
     state = _build_q4_id_independent_state()
     state.transport_links[0].cost = 0.2
     state.transport_links[1].cost = 0.1
@@ -902,7 +1126,12 @@ def test_q4_route_association_fails_when_menomonie_and_black_river_costs_are_swa
     assert metrics["formulation_completeness_pass"] is False
     assert metrics["solve_correctness_pass"] is False
     assert metrics["primary_success"] is False
-    assert metrics["failure_type"] == "route_cost_association_error"
+    assert metrics["failure_type"] == "route_cost_binding_error"
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Menomonie:Manure",
+    )["route_cost_binding_error"] is True
     assert _metric(metrics, "route_association_metrics", "route_association:Menomonie")["pass"] is False
     assert _metric(metrics, "route_association_metrics", "route_association:Black River Falls")["pass"] is False
 
@@ -977,6 +1206,15 @@ def test_q4_fully_recovered_formulation_solves_and_is_reasoning_ready():
     assert metrics["formulation_completeness_pass"] is True
     assert metrics["solve_correctness_pass"] is True
     assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
+
+
+def test_q4_exact_id_differences_do_not_cause_primary_failure():
+    state = _build_q4_id_independent_state()
+    metrics = _primary_q4_metrics_for(state, _q4_id_independent_solve_result())
+
+    assert {link.id for link in state.transport_links} == {"A", "B", "C", "D"}
+    assert metrics["formulation_completeness_pass"] is True
     assert metrics["primary_success"] is True
 
 

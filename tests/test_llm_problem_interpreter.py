@@ -122,6 +122,7 @@ class TestStateConstruction:
                 "id": "K1",
                 "node": "N1",
                 "capacity": 100.0,
+                "cost": 2.0,
                 "yield_coefficients": {"P1": -1.0, "P2": 1.0}
             }],
         }
@@ -132,6 +133,7 @@ class TestStateConstruction:
         tech = state.technologies[0]
         assert tech.id == "K1"
         assert tech.capacity == 100.0
+        assert tech.cost == 2.0
         assert tech.yield_coefficients["P1"] == -1.0
         assert tech.yield_coefficients["P2"] == 1.0
 
@@ -184,6 +186,53 @@ class TestStateConstruction:
         assert artifacts["state_summary"]["counts"]["bids"] == 2
         assert artifacts["market_instance"].problem_title == "Case A Summary"
 
+    def test_builder_preserves_collective_transport_capacities_on_all_links(self):
+        plan = {
+            "problem_title": "Collective Route Capacity",
+            "nodes": [{"id": "S"}, {"id": "A"}, {"id": "B"}, {"id": "K"}, {"id": "D"}],
+            "products": [{"id": "Manure"}, {"id": "Compost"}],
+            "suppliers": [],
+            "consumers": [],
+            "transport_links": [
+                {"id": "T1", "origin": "S", "destination": "A", "product": "Manure", "capacity": 1000.0, "cost": 0.1},
+                {"id": "T2", "origin": "S", "destination": "B", "product": "Manure", "capacity": 1000.0, "cost": 0.2},
+                {"id": "T3", "origin": "S", "destination": "K", "product": "Manure", "capacity": 1000.0, "cost": 0.0},
+                {"id": "T4", "origin": "K", "destination": "D", "product": "Compost", "capacity": 1000.0, "cost": 1.0},
+            ],
+            "bids": [],
+            "technologies": [],
+        }
+
+        state = build_state_from_semantic_plan(plan)
+
+        assert [link.capacity for link in state.transport_links] == [1000.0] * 4
+
+    def test_builder_preserves_product_specific_transport_capacity_statements(self):
+        plan = {
+            "problem_title": "Product Specific Route Capacity",
+            "nodes": [{"id": "S"}, {"id": "A"}, {"id": "K"}, {"id": "D"}],
+            "products": [{"id": "Manure"}, {"id": "Compost"}],
+            "suppliers": [],
+            "consumers": [],
+            "transport_links": [
+                {"id": "Manure_A", "origin": "S", "destination": "A", "product": "Manure", "capacity": 1000.0, "cost": 0.1},
+                {"id": "Manure_K", "origin": "S", "destination": "K", "product": "Manure", "capacity": 1000.0, "cost": 0.0},
+                {"id": "Compost_D", "origin": "K", "destination": "D", "product": "Compost", "capacity": 1000.0, "cost": 1.0},
+            ],
+            "bids": [],
+            "technologies": [],
+        }
+
+        state = build_state_from_semantic_plan(plan)
+        capacities_by_product = {
+            (link.product, link.destination): link.capacity
+            for link in state.transport_links
+        }
+
+        assert capacities_by_product[("Manure", "A")] == 1000.0
+        assert capacities_by_product[("Manure", "K")] == 1000.0
+        assert capacities_by_product[("Compost", "D")] == 1000.0
+
 
 class TestInterpretationPrompt:
     """Test the LLM interpretation prompt building."""
@@ -201,6 +250,21 @@ class TestInterpretationPrompt:
         assert "suppliers" in prompt
         assert "missing_information" in prompt
         assert "Preserve every explicit numeric value exactly as written" in prompt
+
+    def test_prompt_instructs_route_specific_cost_and_capacity_recovery(self):
+        """The interpreter prompt should guard against unordered route costs and omitted collective capacities."""
+        prompt = _build_interpretation_prompt("All four transport links have capacity 1000.")
+        instruction_block = prompt.split("Problem description:", 1)[0]
+
+        assert "Extract each transport link as one complete structured record" in prompt
+        assert "Do not treat transport costs as unordered numerical values" in prompt
+        assert "Do not assign route costs by position" in prompt
+        assert "preserve those origin-destination-cost bindings exactly" in prompt
+        assert "expand them to every affected transport link" in prompt
+        assert "all transport links have capacity 1000" in prompt
+        assert "Do not leave transport_links[].capacity null" in prompt
+        for domain_name in ("manure", "compost", "menomonie", "black river falls", "madison"):
+            assert domain_name not in instruction_block.lower()
 
 
 class TestLLMInterpretation:
