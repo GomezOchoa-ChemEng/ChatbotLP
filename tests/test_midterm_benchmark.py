@@ -80,6 +80,21 @@ def test_q4_benchmark_files_load_with_compost_reference():
     assert metrics["technology"]["input_coefficients"] == [-1.0]
     assert metrics["technology"]["output_coefficients"] == [0.1]
     assert metrics["solver_aggregates"]["technology_cost"] == 500.0
+    assert len(metrics["transport_links"]) == 4
+    assert metrics["route_association"]["compost_pathway"]["expected_pathway_net_value"] == 9.6
+
+
+def test_q4_paraphrased_prompt_explicitly_states_all_four_transport_capacities():
+    prompts = {
+        prompt["id"]: prompt["text"]
+        for prompt in load_benchmark_files(DEFAULT_Q4_BENCHMARK_DIR)["prompts"]
+    }
+    paraphrased = prompts["paraphrased"]
+    expected_state = build_state_from_semantic_plan(build_midterm_manure_q4_expected_plan("paraphrased"))
+
+    assert "all four transport links have capacity 1000" in paraphrased
+    assert "composter to Madison for compost" in paraphrased
+    assert [link.capacity for link in expected_state.transport_links] == [1000.0] * 4
 
 
 def test_solution_comparison_detects_objective_and_flow_match():
@@ -853,17 +868,116 @@ def test_q4_primary_metrics_pass_with_id_artifacts_and_compost_technology():
 
     metrics = _primary_q4_metrics_for(state, solve_result)
 
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["route_association_pass"] is True
     assert metrics["semantic_structure_pass"] is True
     assert metrics["technology_structure_pass"] is True
     assert metrics["solver_aggregate_pass"] is True
     assert metrics["balance_residual_pass"] is True
     assert metrics["primary_success"] is True
+    assert metrics["failure_type"] == "none"
     assert _metric(metrics, "semantic_count_metrics", "products_include_compost")["pass"] is True
     assert _metric(metrics, "technology_yield_metrics", "technology_output_coefficients")["pass"] is True
     assert _metric(metrics, "route_economics_metrics", "technology_pathway_net_values_per_input")["pass"] is True
+    assert _metric(metrics, "route_association_metrics", "route_association:Menomonie")["pass"] is True
+    assert _metric(metrics, "route_association_metrics", "route_association:Black River Falls")["pass"] is True
+    assert _metric(metrics, "route_association_metrics", "route_association:compost_pathway")["pass"] is True
     assert _metric(metrics, "solver_aggregate_metrics", "sorted_active_manure_flow_values")["pass"] is True
     assert _metric(metrics, "solver_aggregate_metrics", "sorted_active_compost_flow_values")["pass"] is True
     assert _metric(metrics, "solver_aggregate_metrics", "technology_activity")["pass"] is True
+
+
+def test_q4_route_association_fails_when_menomonie_and_black_river_costs_are_swapped():
+    state = _build_q4_id_independent_state()
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+    solve_result = _q4_id_independent_solve_result(objective=5850.0)
+
+    metrics = _primary_q4_metrics_for(state, solve_result)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert metrics["route_association_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["solve_correctness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_association_error"
+    assert _metric(metrics, "route_association_metrics", "route_association:Menomonie")["pass"] is False
+    assert _metric(metrics, "route_association_metrics", "route_association:Black River Falls")["pass"] is False
+
+
+def test_q4_sorted_transport_cost_multiset_alone_is_insufficient_for_route_association():
+    state = _build_q4_id_independent_state()
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+
+    metrics = _primary_q4_metrics_for(state, _q4_id_independent_solve_result(objective=5850.0))
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert _metric(metrics, "route_economics_metrics", "sorted_route_or_pathway_net_values")["pass"] is False
+    assert metrics["route_association_pass"] is False
+    assert metrics["primary_success"] is False
+
+
+def test_q4_missing_nonbinding_transport_capacity_is_not_primary_success():
+    state = _build_q4_id_independent_state()
+    state.transport_links[0].capacity = None
+    solve_result = _q4_id_independent_solve_result()
+
+    metrics = _primary_q4_metrics_for(state, solve_result)
+
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["reasoning_ready_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "incomplete_formulation_but_solution_equivalent"
+    capacity_row = _metric(
+        metrics,
+        "formulation_completeness_metrics",
+        "transport_capacity:EauClaire_to_Menomonie:Manure",
+    )
+    assert capacity_row["pass"] is False
+    assert "Menomonie" in capacity_row["expected"]
+
+
+def test_q4_missing_nonbinding_transport_capacity_blocks_reasoning_readiness():
+    state = _build_q4_id_independent_state()
+    state.transport_links[0].capacity = None
+
+    metrics = _primary_q4_metrics_for(state, _q4_id_independent_solve_result())
+
+    assert metrics["reasoning_ready_pass"] is False
+    for row in metrics["reasoning_readiness_metrics"]:
+        assert row["pass"] is False
+
+
+def test_q4_missing_route_cost_fails_solution_and_formulation_completeness():
+    state = _build_q4_id_independent_state()
+    state.transport_links[1].cost = 0.0
+    solve_result = _q4_id_independent_solve_result(objective=5900.0)
+
+    metrics = _primary_q4_metrics_for(state, solve_result)
+
+    assert metrics["solve_correctness_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert _metric(metrics, "solve_correctness_metrics", "transport_cost_match")["pass"] is False
+    assert _metric(
+        metrics,
+        "formulation_completeness_metrics",
+        "transport_cost:EauClaire_to_BlackRiverFalls:Manure",
+    )["pass"] is False
+
+
+def test_q4_fully_recovered_formulation_solves_and_is_reasoning_ready():
+    state = _build_q4_id_independent_state()
+    metrics = _primary_q4_metrics_for(state, _q4_id_independent_solve_result())
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
 
 
 @pytest.mark.parametrize(
@@ -945,12 +1059,24 @@ def test_q4_benchmark_runner_includes_technology_table_without_llm(monkeypatch):
 
     summary = report["tables"]["case_summary"]
     technology_rows = report["tables"]["technology_yield_metrics"]
+    route_association_rows = report["tables"]["route_association_metrics"]
+    formulation_rows = report["tables"]["formulation_completeness_metrics"]
+    solve_correctness_rows = report["tables"]["solve_correctness_metrics"]
+    readiness_rows = report["tables"]["reasoning_readiness_metrics"]
 
     assert set(summary["prompt_id"]) == {"canonical", "paraphrased"}
     assert summary["primary_success"].all()
+    assert summary["formulation_completeness_pass"].all()
+    assert summary["solve_correctness_pass"].all()
+    assert summary["reasoning_ready_pass"].all()
     assert not technology_rows.empty
+    assert not route_association_rows.empty
+    assert not formulation_rows.empty
+    assert not solve_correctness_rows.empty
+    assert not readiness_rows.empty
     assert set(technology_rows["prompt_id"]) == {"canonical", "paraphrased"}
     assert technology_rows["pass"].all()
+    assert route_association_rows["pass"].all()
 
 
 def test_q3_benchmark_runner_includes_removal_incentive_table_without_llm(monkeypatch):

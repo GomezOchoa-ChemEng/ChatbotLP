@@ -737,6 +737,8 @@ def evaluate_midterm_prompt_case(
         state=actual_state,
         solve_result=solve_result,
         reference_solution=reference_solution,
+        semantic_plan=interpretation.get("semantic_plan"),
+        prose_input=case.get("prose"),
     )
     removal_incentive_diagnostics = build_supplier_removal_incentive_diagnostics(
         state=actual_state,
@@ -967,14 +969,17 @@ def compare_solution_to_reference(
         reference_solution.get("supply_cost"),
         tolerance,
     )
+    expected_supply_contribution = reference_solution.get("supply_contribution")
+    if expected_supply_contribution is None and reference_solution.get("supply_cost") is not None:
+        expected_supply_contribution = -float(reference_solution.get("supply_cost"))
     supply_contribution_match = _float_or_none_matches(
         components.get("supply_contribution"),
-        reference_solution.get("supply_contribution"),
+        expected_supply_contribution,
         tolerance,
     )
     technology_cost_match = _float_or_none_matches(
         components.get("technology_cost"),
-        reference_solution.get("technology_cost"),
+        reference_solution.get("technology_cost", 0.0),
         tolerance,
     )
     accepted_supply_total_match = _float_or_none_matches(
@@ -1015,6 +1020,8 @@ def evaluate_primary_semantic_metrics(
     solve_result: Dict[str, Any],
     reference_solution: Dict[str, Any],
     tolerance: float = TOLERANCE,
+    semantic_plan: Optional[Dict[str, Any]] = None,
+    prose_input: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Evaluate the midterm manure benchmark without depending on exact entity IDs."""
 
@@ -1027,8 +1034,27 @@ def evaluate_primary_semantic_metrics(
     topology_rows = _topology_metric_rows(state, reference_solution)
     technology_rows = _technology_yield_metric_rows(state, reference_solution, tolerance)
     route_rows = _route_economics_metric_rows(state, reference_solution, tolerance)
+    route_association_rows = _route_association_metric_rows(state, reference_solution, tolerance)
     solver_rows = _solver_aggregate_metric_rows(state, solve_result, reference_solution, tolerance)
     balance_rows = _balance_residual_metric_rows(state, solve_result, tolerance)
+    solve_correctness_rows = _solve_correctness_metric_rows(
+        state,
+        solve_result,
+        reference_solution,
+        tolerance,
+    )
+    formulation_rows = _formulation_completeness_metric_rows(
+        state=state,
+        reference_solution=reference_solution,
+        count_rows=count_rows,
+        parameter_rows=parameter_rows,
+        topology_rows=topology_rows,
+        technology_rows=technology_rows,
+        route_association_rows=route_association_rows,
+        tolerance=tolerance,
+        semantic_plan=semantic_plan,
+        prose_input=prose_input,
+    )
 
     semantic_structure_pass = all(
         bool(row["pass"])
@@ -1036,13 +1062,27 @@ def evaluate_primary_semantic_metrics(
         for row in rows
     )
     technology_structure_pass = all(bool(row["pass"]) for row in technology_rows)
+    route_association_pass = all(bool(row["pass"]) for row in route_association_rows)
     solver_aggregate_pass = all(bool(row["pass"]) for row in solver_rows)
     balance_residual_pass = all(bool(row["pass"]) for row in balance_rows)
+    formulation_completeness_pass = all(bool(row["pass"]) for row in formulation_rows)
+    solve_correctness_pass = all(bool(row["pass"]) for row in solve_correctness_rows)
+    reasoning_rows = _reasoning_readiness_metric_rows(
+        formulation_completeness_pass=formulation_completeness_pass,
+        route_association_pass=route_association_pass,
+        technology_structure_pass=technology_structure_pass,
+    )
+    reasoning_ready_pass = all(bool(row["pass"]) for row in reasoning_rows)
     primary_success = (
-        semantic_structure_pass
-        and technology_structure_pass
-        and solver_aggregate_pass
-        and balance_residual_pass
+        formulation_completeness_pass
+        and solve_correctness_pass
+        and reasoning_ready_pass
+    )
+    failure_type = _classify_primary_failure(
+        formulation_completeness_pass=formulation_completeness_pass,
+        solve_correctness_pass=solve_correctness_pass,
+        reasoning_ready_pass=reasoning_ready_pass,
+        route_association_rows=route_association_rows,
     )
 
     return {
@@ -1051,13 +1091,22 @@ def evaluate_primary_semantic_metrics(
         "topology_metrics": topology_rows,
         "technology_yield_metrics": technology_rows,
         "route_economics_metrics": route_rows,
+        "route_association_metrics": route_association_rows,
         "solver_aggregate_metrics": solver_rows,
         "balance_residual_metrics": balance_rows,
+        "formulation_completeness_metrics": formulation_rows,
+        "solve_correctness_metrics": solve_correctness_rows,
+        "reasoning_readiness_metrics": reasoning_rows,
         "semantic_structure_pass": semantic_structure_pass,
         "technology_structure_pass": technology_structure_pass,
+        "route_association_pass": route_association_pass,
         "solver_aggregate_pass": solver_aggregate_pass,
         "balance_residual_pass": balance_residual_pass,
+        "formulation_completeness_pass": formulation_completeness_pass,
+        "solve_correctness_pass": solve_correctness_pass,
+        "reasoning_ready_pass": reasoning_ready_pass,
         "primary_success": primary_success,
+        "failure_type": failure_type,
     }
 
 
@@ -1390,8 +1439,12 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
     topology_rows = []
     technology_rows = []
     route_rows = []
+    route_association_rows = []
     aggregate_rows = []
     residual_rows = []
+    formulation_rows = []
+    solve_correctness_rows = []
+    reasoning_readiness_rows = []
     removal_rows = []
 
     for result in case_results:
@@ -1404,15 +1457,21 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         benign_identifier_count = len(comparison.get("benign_identifier_mismatches", []))
         semantic_structure_pass = bool(primary_metrics.get("semantic_structure_pass", False))
         technology_structure_pass = bool(primary_metrics.get("technology_structure_pass", True))
+        route_association_pass = bool(primary_metrics.get("route_association_pass", True))
         solver_aggregate_pass = bool(primary_metrics.get("solver_aggregate_pass", False))
         balance_residual_pass = bool(primary_metrics.get("balance_residual_pass", False))
+        formulation_completeness_pass = bool(primary_metrics.get("formulation_completeness_pass", False))
+        solve_correctness_pass = bool(primary_metrics.get("solve_correctness_pass", False))
+        reasoning_ready_pass = bool(primary_metrics.get("reasoning_ready_pass", False))
         primary_success = bool(primary_metrics.get("primary_success", False))
+        failure_type = primary_metrics.get("failure_type", "unknown")
 
         pass_flags = [
             result["semantic_plan_created"],
             result["problem_state_created"],
-            semantic_structure_pass,
-            technology_structure_pass,
+            formulation_completeness_pass,
+            solve_correctness_pass,
+            reasoning_ready_pass,
             result["solver_ready_correct"],
         ]
         if result["expected_solver_ready"]:
@@ -1433,9 +1492,14 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
                 "structural_match": semantic_structure_pass,
                 "semantic_structure_pass": semantic_structure_pass,
                 "technology_structure_pass": technology_structure_pass,
+                "route_association_pass": route_association_pass,
                 "solver_aggregate_pass": solver_aggregate_pass,
                 "balance_residual_pass": balance_residual_pass,
+                "formulation_completeness_pass": formulation_completeness_pass,
+                "solve_correctness_pass": solve_correctness_pass,
+                "reasoning_ready_pass": reasoning_ready_pass,
                 "primary_success": primary_success,
+                "failure_type": failure_type,
                 "alias_structural_match": comparison["structural_match"],
                 "blocking_error_count": _primary_failure_count(primary_metrics),
                 "alias_blocking_error_count": blocking_count,
@@ -1518,10 +1582,18 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
             technology_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("route_economics_metrics", []):
             route_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in primary_metrics.get("route_association_metrics", []):
+            route_association_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("solver_aggregate_metrics", []):
             aggregate_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in primary_metrics.get("balance_residual_metrics", []):
             residual_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in primary_metrics.get("formulation_completeness_metrics", []):
+            formulation_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in primary_metrics.get("solve_correctness_metrics", []):
+            solve_correctness_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in primary_metrics.get("reasoning_readiness_metrics", []):
+            reasoning_readiness_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in result.get("removal_incentive_diagnostics", []):
             removal_rows.append({"prompt_id": result["prompt_id"], **row})
 
@@ -1534,8 +1606,12 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         "topology_metrics": pd.DataFrame(topology_rows),
         "technology_yield_metrics": pd.DataFrame(technology_rows),
         "route_economics_metrics": pd.DataFrame(route_rows),
+        "route_association_metrics": pd.DataFrame(route_association_rows),
         "solver_aggregate_metrics": pd.DataFrame(aggregate_rows),
         "balance_residual_metrics": pd.DataFrame(residual_rows),
+        "formulation_completeness_metrics": pd.DataFrame(formulation_rows),
+        "solve_correctness_metrics": pd.DataFrame(solve_correctness_rows),
+        "reasoning_readiness_metrics": pd.DataFrame(reasoning_readiness_rows),
         "removal_incentive_diagnostics": pd.DataFrame(removal_rows),
         "alias_resolution_diagnostics": pd.DataFrame(diagnostic_rows),
         "reasoning_prompt_success": pd.DataFrame(reasoning_rows),
@@ -1680,13 +1756,34 @@ def _empty_primary_metrics(reason: str) -> Dict[str, Any]:
         "topology_metrics": [],
         "technology_yield_metrics": [],
         "route_economics_metrics": [],
+        "route_association_metrics": [],
         "solver_aggregate_metrics": [],
         "balance_residual_metrics": [],
+        "formulation_completeness_metrics": [
+            _formulation_metric_row(
+                "problem_state_created",
+                True,
+                False,
+                False,
+                reason,
+            )
+        ],
+        "solve_correctness_metrics": [],
+        "reasoning_readiness_metrics": _reasoning_readiness_metric_rows(
+            formulation_completeness_pass=False,
+            route_association_pass=False,
+            technology_structure_pass=False,
+        ),
         "semantic_structure_pass": False,
         "technology_structure_pass": False,
+        "route_association_pass": False,
         "solver_aggregate_pass": False,
         "balance_residual_pass": False,
+        "formulation_completeness_pass": False,
+        "solve_correctness_pass": False,
+        "reasoning_ready_pass": False,
         "primary_success": False,
+        "failure_type": "incomplete_formulation_and_wrong_solution",
     }
 
 
@@ -2054,6 +2151,734 @@ def _route_economics_metric_rows(
             ]
         )
     return rows
+
+
+def _route_association_metric_rows(
+    state: ProblemState,
+    reference_solution: Dict[str, Any],
+    tolerance: float,
+) -> List[Dict[str, Any]]:
+    """Check route-specific economic associations when the reference supplies them."""
+
+    association = _expected_semantic_metrics(reference_solution).get("route_association", {})
+    if not isinstance(association, dict) or not association:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    expected_manure_costs = [
+        float(route["transport_cost"])
+        for route in association.get("manure_routes", [])
+        if route.get("transport_cost") is not None
+    ]
+    for route in association.get("manure_routes", []):
+        origin = route.get("origin")
+        destination = route.get("destination")
+        product = route.get("product")
+        link = _find_transport_link_by_semantic_route(state, origin, destination, product)
+        consumer_bid = _consumer_price_at(state, link.destination, link.product) if link is not None else None
+        source_price = _supplier_price_at(state, link.origin, link.product) if link is not None else None
+        source_contribution = -source_price if source_price is not None else None
+        transport_cost = float(getattr(link, "cost", 0.0) or 0.0) if link is not None else None
+        computed_net_value = (
+            float(source_contribution) + float(consumer_bid) - float(transport_cost)
+            if source_contribution is not None and consumer_bid is not None and transport_cost is not None
+            else None
+        )
+        expected_net_value = route.get("expected_route_net_value")
+        expected_transport_cost = route.get("transport_cost")
+        expected_consumer_bid = route.get("consumer_bid")
+        expected_source_contribution = route.get("source_contribution")
+
+        cost_matches = _optional_float_matches(transport_cost, expected_transport_cost, tolerance)
+        bid_matches = _optional_float_matches(consumer_bid, expected_consumer_bid, tolerance)
+        source_matches = _optional_float_matches(source_contribution, expected_source_contribution, tolerance)
+        net_matches = _optional_float_matches(computed_net_value, expected_net_value, tolerance)
+        passed = link is not None and cost_matches and bid_matches and source_matches and net_matches
+        association_error = (
+            link is not None
+            and not cost_matches
+            and transport_cost is not None
+            and any(
+                abs(float(transport_cost) - expected_cost) <= tolerance
+                for expected_cost in expected_manure_costs
+                if expected_transport_cost is None
+                or abs(expected_cost - float(expected_transport_cost)) > tolerance
+            )
+        )
+        rows.append(
+            {
+                "metric": f"route_association:{route.get('destination_role', destination)}",
+                "pathway_type": "manure_route",
+                "resolved_destination_role": route.get("destination_role", destination),
+                "origin": origin,
+                "destination": destination,
+                "product": product,
+                "consumer_bid_attached": consumer_bid,
+                "expected_consumer_bid": expected_consumer_bid,
+                "transport_cost_attached": transport_cost,
+                "expected_transport_cost": expected_transport_cost,
+                "source_contribution": source_contribution,
+                "expected_source_contribution": expected_source_contribution,
+                "computed_route_net_value": computed_net_value,
+                "expected_route_net_value": expected_net_value,
+                "pass": bool(passed),
+                "association_error": association_error,
+                "reason": (
+                    "pass"
+                    if passed
+                    else "transport cost appears attached to a different destination"
+                    if association_error
+                    else "route-specific bid, cost, source contribution, or net value mismatch"
+                ),
+            }
+        )
+
+    compost_pathway = association.get("compost_pathway")
+    if isinstance(compost_pathway, dict) and compost_pathway:
+        rows.append(_compost_pathway_association_row(state, compost_pathway, tolerance))
+    return rows
+
+
+def _compost_pathway_association_row(
+    state: ProblemState,
+    pathway: Dict[str, Any],
+    tolerance: float,
+) -> Dict[str, Any]:
+    source_origin = pathway.get("source_origin")
+    technology_node = pathway.get("technology_node")
+    consumer_destination = pathway.get("consumer_destination")
+    input_product = pathway.get("technology_input_product") or pathway.get("input_product")
+    output_product = pathway.get("technology_output_product") or pathway.get("output_product")
+
+    input_link = _find_transport_link_by_semantic_route(
+        state,
+        source_origin,
+        technology_node,
+        input_product,
+    )
+    output_link = _find_transport_link_by_semantic_route(
+        state,
+        technology_node,
+        consumer_destination,
+        output_product,
+    )
+    technology = _find_technology_by_semantic_node(state, technology_node)
+    source_price = (
+        _supplier_price_at(state, input_link.origin, input_link.product)
+        if input_link is not None
+        else None
+    )
+    source_contribution = -source_price if source_price is not None else None
+    compost_consumer_bid = (
+        _consumer_price_at(state, output_link.destination, output_link.product)
+        if output_link is not None
+        else None
+    )
+    input_transport_cost = (
+        float(getattr(input_link, "cost", 0.0) or 0.0)
+        if input_link is not None
+        else None
+    )
+    compost_transport_cost = (
+        float(getattr(output_link, "cost", 0.0) or 0.0)
+        if output_link is not None
+        else None
+    )
+    yield_value = _technology_yield_for_product(state, technology, output_product)
+    input_coefficient = _technology_yield_for_product(state, technology, input_product)
+    technology_cost = float(getattr(technology, "cost", 0.0) or 0.0) if technology is not None else None
+    expected_net_value = pathway.get("expected_pathway_net_value")
+
+    computed_net_value = None
+    if (
+        source_contribution is not None
+        and input_transport_cost is not None
+        and compost_consumer_bid is not None
+        and compost_transport_cost is not None
+        and yield_value is not None
+        and technology_cost is not None
+    ):
+        computed_net_value = (
+            float(source_contribution)
+            - float(input_transport_cost)
+            + float(compost_consumer_bid) * float(yield_value)
+            - float(compost_transport_cost) * float(yield_value)
+            - float(technology_cost)
+        )
+
+    product_structure_pass = (
+        input_coefficient is not None
+        and input_coefficient < 0
+        and yield_value is not None
+        and yield_value > 0
+    )
+    expected_yield = pathway.get("yield")
+    checks = [
+        product_structure_pass,
+        _optional_float_matches(compost_consumer_bid, pathway.get("compost_consumer_bid"), tolerance),
+        _optional_float_matches(compost_transport_cost, pathway.get("compost_transport_cost"), tolerance),
+        _optional_float_matches(yield_value, expected_yield, tolerance),
+        _optional_float_matches(technology_cost, pathway.get("technology_cost"), tolerance),
+        _optional_float_matches(computed_net_value, expected_net_value, tolerance),
+    ]
+    passed = all(checks)
+    return {
+        "metric": "route_association:compost_pathway",
+        "pathway_type": "compost_pathway",
+        "resolved_destination_role": pathway.get("destination_role", consumer_destination),
+        "origin": source_origin,
+        "destination": consumer_destination,
+        "product": output_product,
+        "compost_consumer_bid": compost_consumer_bid,
+        "expected_compost_consumer_bid": pathway.get("compost_consumer_bid"),
+        "compost_transport_cost": compost_transport_cost,
+        "expected_compost_transport_cost": pathway.get("compost_transport_cost"),
+        "technology_input_product": input_product,
+        "technology_output_product": output_product,
+        "input_transport_cost": input_transport_cost,
+        "yield": yield_value,
+        "expected_yield": expected_yield,
+        "technology_cost": technology_cost,
+        "expected_technology_cost": pathway.get("technology_cost"),
+        "computed_pathway_net_value": computed_net_value,
+        "expected_pathway_net_value": expected_net_value,
+        "pass": bool(passed),
+        "association_error": False,
+        "reason": (
+            "pass"
+            if passed
+            else "compost pathway bid, transport, yield, technology cost, or net value mismatch"
+        ),
+    }
+
+
+def _formulation_completeness_metric_rows(
+    state: ProblemState,
+    reference_solution: Dict[str, Any],
+    count_rows: Sequence[Dict[str, Any]],
+    parameter_rows: Sequence[Dict[str, Any]],
+    topology_rows: Sequence[Dict[str, Any]],
+    technology_rows: Sequence[Dict[str, Any]],
+    route_association_rows: Sequence[Dict[str, Any]],
+    tolerance: float,
+    semantic_plan: Optional[Dict[str, Any]] = None,
+    prose_input: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Build strict formulation-recovery checks separate from solve correctness."""
+
+    rows: List[Dict[str, Any]] = []
+    for row in count_rows:
+        rows.append(
+            _formulation_metric_row(
+                f"entity_count:{row['metric']}",
+                row.get("expected"),
+                row.get("actual"),
+                bool(row.get("pass", False)),
+                "required products, participants, routes, and technologies must be recovered",
+            )
+        )
+    for row in topology_rows:
+        rows.append(
+            _formulation_metric_row(
+                f"topology:{row['metric']}",
+                row.get("expected"),
+                row.get("actual"),
+                bool(row.get("pass", False)),
+                "required network topology and product semantics must be recovered",
+            )
+        )
+    for row in parameter_rows:
+        reason = {
+            "supplier_capacities": "all supplier capacities must be recovered",
+            "consumer_capacities": "all consumer capacities must be recovered",
+            "consumer_bid_prices": "all consumer bid prices must be recovered",
+            "supplier_bid_prices": "all supplier bid prices must be recovered",
+            "transport_costs": "transport-cost multiset is diagnostic; route association is checked separately",
+            "transport_capacities": "all required transport capacities must be recovered",
+        }.get(row["metric"], "required numeric parameters must be recovered")
+        rows.append(
+            _formulation_metric_row(
+                f"parameter:{row['metric']}",
+                row.get("expected"),
+                row.get("actual"),
+                bool(row.get("pass", False)),
+                reason,
+            )
+        )
+    rows.extend(
+        _transport_link_formulation_rows(
+            state=state,
+            reference_solution=reference_solution,
+            tolerance=tolerance,
+            semantic_plan=semantic_plan,
+            prose_input=prose_input,
+        )
+    )
+    for row in technology_rows:
+        rows.append(
+            _formulation_metric_row(
+                f"technology:{row['metric']}",
+                row.get("expected"),
+                row.get("actual"),
+                bool(row.get("pass", False)),
+                "technology yields, capacities, and costs must be recovered",
+            )
+        )
+    for row in route_association_rows:
+        rows.append(
+            _formulation_metric_row(
+                row["metric"],
+                _route_association_expected_payload(row),
+                _route_association_actual_payload(row),
+                bool(row.get("pass", False)),
+                row.get("reason") or "route-specific economics must be attached to the correct destination",
+            )
+        )
+    return rows
+
+
+def _transport_link_formulation_rows(
+    state: ProblemState,
+    reference_solution: Dict[str, Any],
+    tolerance: float,
+    semantic_plan: Optional[Dict[str, Any]],
+    prose_input: Optional[str],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for spec in _reference_transport_link_expectations(reference_solution):
+        link = _find_transport_link_by_semantic_route(
+            state,
+            spec.get("origin"),
+            spec.get("destination"),
+            spec.get("product"),
+        )
+        route_label = _transport_expectation_label(spec)
+        actual_route = _transport_link_payload(link) if link is not None else None
+        expected_route = {
+            "origin": spec.get("origin"),
+            "destination": spec.get("destination"),
+            "product": spec.get("product"),
+        }
+        rows.append(
+            _formulation_metric_row(
+                f"transport_link:{route_label}",
+                expected_route,
+                actual_route,
+                link is not None,
+                "each expected transport link must be recovered",
+            )
+        )
+        expected_cost = spec.get("cost")
+        actual_cost = float(getattr(link, "cost", 0.0) or 0.0) if link is not None else None
+        rows.append(
+            _formulation_metric_row(
+                f"transport_cost:{route_label}",
+                expected_cost,
+                actual_cost,
+                _optional_float_matches(actual_cost, expected_cost, tolerance),
+                "route-specific transport costs must stay attached to the correct origin, destination, and product",
+            )
+        )
+        expected_capacity = spec.get("capacity")
+        actual_capacity = getattr(link, "capacity", None) if link is not None else None
+        rows.append(
+            _formulation_metric_row(
+                f"transport_capacity:{route_label}",
+                {
+                    "route": expected_route,
+                    "capacity": expected_capacity,
+                },
+                {
+                    "route": actual_route,
+                    "capacity": actual_capacity,
+                    "diagnosis": _diagnose_transport_capacity_recovery(
+                        spec=spec,
+                        actual_link=link,
+                        semantic_plan=semantic_plan,
+                        prose_input=prose_input,
+                    ),
+                },
+                _optional_float_matches(actual_capacity, expected_capacity, tolerance),
+                "each required transport capacity must be recovered, even when currently nonbinding",
+            )
+        )
+    return rows
+
+
+def _solve_correctness_metric_rows(
+    state: ProblemState,
+    solve_result: Dict[str, Any],
+    reference_solution: Dict[str, Any],
+    tolerance: float,
+) -> List[Dict[str, Any]]:
+    checks = compare_solution_to_reference(state, solve_result, reference_solution, tolerance)
+    components = checks.get("actual_components", {})
+    residual_stats = _balance_residual_stats(state, solve_result, tolerance)
+    expected_supply_contribution = reference_solution.get("supply_contribution")
+    if expected_supply_contribution is None and reference_solution.get("supply_cost") is not None:
+        expected_supply_contribution = -float(reference_solution.get("supply_cost"))
+    rows = [
+        _solution_metric_row("solve_success", True, checks.get("solve_success"), bool(checks.get("solve_success"))),
+        _solution_metric_row(
+            "objective_match",
+            checks.get("expected_objective"),
+            checks.get("actual_objective"),
+            checks.get("objective_match") is True,
+        ),
+        _solution_metric_row(
+            "accepted_supply_match",
+            reference_solution.get("accepted_supply", {}),
+            components.get("accepted_supply", {}),
+            checks.get("accepted_supply_match") is True,
+        ),
+        _solution_metric_row(
+            "accepted_demand_match",
+            reference_solution.get("accepted_demands", {}),
+            components.get("accepted_demands", {}),
+            checks.get("accepted_demand_match") is True,
+        ),
+        _solution_metric_row(
+            "active_flows_match",
+            reference_solution.get("transport_flows", {}),
+            components.get("transport_flows", {}),
+            checks.get("transport_flow_match") is True,
+        ),
+        _solution_metric_row(
+            "technology_activity_match",
+            reference_solution.get("technology_activity", {}),
+            components.get("technology_activity", {}),
+            checks.get("technology_activity_match") is True,
+        ),
+        _solution_metric_row(
+            "technology_outputs_match",
+            reference_solution.get("technology_outputs", {}),
+            components.get("technology_outputs", {}),
+            checks.get("technology_outputs_match") is True,
+        ),
+        _solution_metric_row(
+            "demand_revenue_match",
+            reference_solution.get("demand_revenue"),
+            components.get("demand_revenue"),
+            checks.get("demand_revenue_match") is True,
+        ),
+        _solution_metric_row(
+            "transport_cost_match",
+            reference_solution.get("transport_cost"),
+            components.get("transport_cost"),
+            checks.get("transport_cost_match") is True,
+        ),
+        _solution_metric_row(
+            "supply_contribution_match",
+            expected_supply_contribution,
+            components.get("supply_contribution"),
+            checks.get("supply_contribution_match") is True,
+        ),
+        _solution_metric_row(
+            "technology_cost_match",
+            reference_solution.get("technology_cost", 0.0),
+            components.get("technology_cost"),
+            checks.get("technology_cost_match") is True,
+        ),
+        _solution_metric_row(
+            "balance_residuals_pass",
+            f"max <= {tolerance}",
+            residual_stats["max_abs_balance_residual"],
+            residual_stats["max_abs_balance_residual"] <= tolerance,
+            details=residual_stats["residuals"],
+        ),
+    ]
+    return rows
+
+
+def _reasoning_readiness_metric_rows(
+    formulation_completeness_pass: bool,
+    route_association_pass: bool,
+    technology_structure_pass: bool,
+) -> List[Dict[str, Any]]:
+    gate_payload = {
+        "formulation_completeness_pass": formulation_completeness_pass,
+        "route_association_pass": route_association_pass,
+        "technology_structure_pass": technology_structure_pass,
+    }
+    ready = all(gate_payload.values())
+    rows = []
+    for capability in (
+        "primal_lp_generation",
+        "dual_lp_generation",
+        "complementary_slackness_checks",
+        "what_if_analysis",
+    ):
+        rows.append(
+            {
+                "metric": capability,
+                "capability": capability,
+                "expected": "safe",
+                "actual": "safe" if ready else "not safe",
+                "pass": ready,
+                "requires": json.dumps(gate_payload, sort_keys=True),
+                "reason": (
+                    "full formulation, route associations, and technology structure recovered"
+                    if ready
+                    else "requires complete formulation recovery, correct route associations, and valid technology structure"
+                ),
+            }
+        )
+    return rows
+
+
+def _classify_primary_failure(
+    formulation_completeness_pass: bool,
+    solve_correctness_pass: bool,
+    reasoning_ready_pass: bool,
+    route_association_rows: Sequence[Dict[str, Any]],
+) -> str:
+    if formulation_completeness_pass and solve_correctness_pass and reasoning_ready_pass:
+        return "none"
+    if any(bool(row.get("association_error")) for row in route_association_rows):
+        return "route_cost_association_error"
+    if not formulation_completeness_pass and solve_correctness_pass:
+        return "incomplete_formulation_but_solution_equivalent"
+    if not formulation_completeness_pass and not solve_correctness_pass:
+        return "incomplete_formulation_and_wrong_solution"
+    if not solve_correctness_pass:
+        return "wrong_solution"
+    if not reasoning_ready_pass:
+        return "reasoning_not_ready"
+    return "unknown"
+
+
+def _formulation_metric_row(
+    field: str,
+    expected: Any,
+    actual: Any,
+    passed: bool,
+    reason: str,
+    severity: str = "blocking",
+) -> Dict[str, Any]:
+    rendered_expected = _render_metric_value(expected)
+    rendered_actual = _render_metric_value(actual)
+    return {
+        "metric": field,
+        "field": field,
+        "expected": rendered_expected,
+        "actual": rendered_actual,
+        "expected_field": rendered_expected,
+        "actual_field": rendered_actual,
+        "pass": bool(passed),
+        "severity": severity,
+        "reason": reason,
+    }
+
+
+def _solution_metric_row(
+    metric: str,
+    expected: Any,
+    actual: Any,
+    passed: bool,
+    details: Any = None,
+) -> Dict[str, Any]:
+    return {
+        "metric": metric,
+        "expected": _render_metric_value(expected),
+        "actual": _render_metric_value(actual),
+        "pass": bool(passed),
+        "details": _render_metric_value(details),
+    }
+
+
+def _route_association_expected_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    if row.get("pathway_type") == "compost_pathway":
+        return {
+            "compost_consumer_bid": row.get("expected_compost_consumer_bid"),
+            "compost_transport_cost": row.get("expected_compost_transport_cost"),
+            "yield": row.get("expected_yield"),
+            "technology_cost": row.get("expected_technology_cost"),
+            "pathway_net_value": row.get("expected_pathway_net_value"),
+        }
+    return {
+        "consumer_bid": row.get("expected_consumer_bid"),
+        "transport_cost": row.get("expected_transport_cost"),
+        "source_contribution": row.get("expected_source_contribution"),
+        "route_net_value": row.get("expected_route_net_value"),
+    }
+
+
+def _route_association_actual_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    if row.get("pathway_type") == "compost_pathway":
+        return {
+            "compost_consumer_bid": row.get("compost_consumer_bid"),
+            "compost_transport_cost": row.get("compost_transport_cost"),
+            "yield": row.get("yield"),
+            "technology_cost": row.get("technology_cost"),
+            "pathway_net_value": row.get("computed_pathway_net_value"),
+        }
+    return {
+        "consumer_bid": row.get("consumer_bid_attached"),
+        "transport_cost": row.get("transport_cost_attached"),
+        "source_contribution": row.get("source_contribution"),
+        "route_net_value": row.get("computed_route_net_value"),
+    }
+
+
+def _reference_transport_link_expectations(reference_solution: Dict[str, Any]) -> List[Dict[str, Any]]:
+    specs = _expected_semantic_metrics(reference_solution).get("transport_links", [])
+    if not isinstance(specs, list):
+        return []
+    return [dict(spec) for spec in specs if isinstance(spec, dict)]
+
+
+def _find_transport_link_by_semantic_route(
+    state: ProblemState,
+    origin: Any,
+    destination: Any,
+    product: Any,
+) -> Any:
+    expected_origin = _canonical_node_key(origin)
+    expected_destination = _canonical_node_key(destination)
+    expected_product = _canonical_product_key(product)
+    for link in state.transport_links:
+        if (
+            _canonical_node_key(link.origin) == expected_origin
+            and _canonical_node_key(link.destination) == expected_destination
+            and _canonical_product_key_for_state(state, link.product) == expected_product
+        ):
+            return link
+    return None
+
+
+def _find_semantic_plan_transport_link(
+    semantic_plan: Optional[Dict[str, Any]],
+    spec: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(semantic_plan, dict):
+        return None
+    expected_origin = _canonical_node_key(spec.get("origin"))
+    expected_destination = _canonical_node_key(spec.get("destination"))
+    expected_product = _canonical_product_key(spec.get("product"))
+    for link in semantic_plan.get("transport_links", []) or []:
+        if not isinstance(link, dict):
+            continue
+        if (
+            _canonical_node_key(link.get("origin")) == expected_origin
+            and _canonical_node_key(link.get("destination")) == expected_destination
+            and _canonical_product_key(link.get("product")) == expected_product
+        ):
+            return link
+    return None
+
+
+def _find_technology_by_semantic_node(state: ProblemState, node: Any) -> Any:
+    expected_node = _canonical_node_key(node)
+    for technology in state.technologies:
+        if _canonical_node_key(technology.node) == expected_node:
+            return technology
+    return None
+
+
+def _technology_yield_for_product(
+    state: ProblemState,
+    technology: Any,
+    product: Any,
+) -> Optional[float]:
+    if technology is None:
+        return None
+    expected_product = _canonical_product_key(product)
+    for product_id, coefficient in technology.yield_coefficients.items():
+        if _canonical_product_key_for_state(state, product_id) == expected_product:
+            return float(coefficient)
+    return None
+
+
+def _transport_expectation_label(spec: Dict[str, Any]) -> str:
+    return (
+        f"{_canonical_node_key(spec.get('origin'))}"
+        f"_to_{_canonical_node_key(spec.get('destination'))}"
+        f":{_canonical_product_key(spec.get('product'))}"
+    )
+
+
+def _transport_link_payload(link: Any) -> Optional[Dict[str, Any]]:
+    if link is None:
+        return None
+    return {
+        "origin": link.origin,
+        "destination": link.destination,
+        "product": link.product,
+        "capacity": link.capacity,
+        "cost": float(getattr(link, "cost", 0.0) or 0.0),
+    }
+
+
+def _diagnose_transport_capacity_recovery(
+    spec: Dict[str, Any],
+    actual_link: Any,
+    semantic_plan: Optional[Dict[str, Any]],
+    prose_input: Optional[str],
+) -> str:
+    expected_capacity = spec.get("capacity")
+    if actual_link is None:
+        return "transport_link_missing_from_problem_state"
+    if expected_capacity is None:
+        return "no_capacity_required_by_reference"
+    if getattr(actual_link, "capacity", None) is not None:
+        return "capacity_recovered"
+    plan_link = _find_semantic_plan_transport_link(semantic_plan, spec)
+    if plan_link is not None and plan_link.get("capacity") is not None:
+        return "state_builder_loss"
+    if prose_input is not None and not _prose_mentions_capacity_for_route(prose_input, spec):
+        return "prompt_omission"
+    if semantic_plan is not None:
+        return "llm_omission"
+    return "not_diagnosable"
+
+
+def _prose_mentions_capacity_for_route(prose_input: str, spec: Dict[str, Any]) -> bool:
+    text = str(prose_input).lower()
+    expected_capacity = spec.get("capacity")
+    if expected_capacity is None:
+        return True
+    capacity_tokens = {
+        str(expected_capacity).lower(),
+        str(int(float(expected_capacity))).lower()
+        if isinstance(expected_capacity, (int, float))
+        else str(expected_capacity).lower(),
+    }
+    if not any(token in text for token in capacity_tokens):
+        return False
+    collective_phrases = (
+        "all four transport links",
+        "all transport links",
+        "each transport link",
+        "each route",
+        "every route",
+    )
+    if any(phrase in text for phrase in collective_phrases):
+        return True
+    origin = str(spec.get("origin", "")).lower()
+    destination = str(spec.get("destination", "")).lower()
+    product = str(spec.get("product", "")).lower()
+    route_tokens = [token for token in (origin, destination, product) if token]
+    if not route_tokens:
+        return False
+    for token in route_tokens:
+        index = text.find(token)
+        while index >= 0:
+            window = text[max(0, index - 120): index + 160]
+            if "capacit" in window and any(capacity in window for capacity in capacity_tokens):
+                return True
+            index = text.find(token, index + len(token))
+    return False
+
+
+def _optional_float_matches(actual: Any, expected: Any, tolerance: float) -> bool:
+    if expected is None:
+        return actual is None
+    if actual is None:
+        return False
+    try:
+        return abs(float(actual) - float(expected)) <= tolerance
+    except (TypeError, ValueError):
+        return False
 
 
 def _technology_yield_metric_rows(
@@ -2696,8 +3521,12 @@ def _primary_failure_count(primary_metrics: Dict[str, Any]) -> int:
             "topology_metrics",
             "technology_yield_metrics",
             "route_economics_metrics",
+            "route_association_metrics",
             "solver_aggregate_metrics",
             "balance_residual_metrics",
+            "formulation_completeness_metrics",
+            "solve_correctness_metrics",
+            "reasoning_readiness_metrics",
         )
         for row in primary_metrics.get(key, [])
         if not row.get("pass", False)
@@ -3092,6 +3921,8 @@ def _canonical_node_key(value: Any) -> str:
         "blackriverfalls": "BlackRiverFalls",
         "blackriver": "BlackRiverFalls",
         "brf": "BlackRiverFalls",
+        "sink2": "BlackRiverFalls",
+        "c2": "BlackRiverFalls",
         "sf": "BlackRiverFalls",
         "soybean": "BlackRiverFalls",
         "soybeanfarm": "BlackRiverFalls",
@@ -3099,12 +3930,14 @@ def _canonical_node_key(value: Any) -> str:
         "csoybean": "BlackRiverFalls",
         "consumersoybean": "BlackRiverFalls",
         "dc": CANONICAL_MADISON_COMPOST_DEMAND_ID,
+        "mad": CANONICAL_MADISON_COMPOST_DEMAND_ID,
         "madison": CANONICAL_MADISON_COMPOST_DEMAND_ID,
         "madisoncompost": CANONICAL_MADISON_COMPOST_DEMAND_ID,
         "madisoncompostconsumer": CANONICAL_MADISON_COMPOST_DEMAND_ID,
         "compostconsumer": CANONICAL_MADISON_COMPOST_DEMAND_ID,
         "composter": CANONICAL_COMPOSTER_ID,
         "k1": CANONICAL_COMPOSTER_ID,
+        "knode": CANONICAL_COMPOSTER_ID,
         "technology": CANONICAL_COMPOSTER_ID,
     }
     return aliases.get(text, str(value).replace(" ", ""))

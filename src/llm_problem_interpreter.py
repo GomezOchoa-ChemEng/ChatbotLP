@@ -127,6 +127,12 @@ Requirements:
 - Do not invent extra nodes, products, links, bids, or technologies just to make the model complete.
 - If something important is missing or ambiguous, keep the missing field as null and record it in missing_information or ambiguities.
 - Put per-unit transportation costs on transport_links[].cost. Do not encode transport costs as supplier or consumer bids.
+- Attach destination-specific transportation costs to the correct transport links. If prose says transportation cost to one destination is 0.1 and to another destination is 0.2, the link to the first destination must have cost 0.1 and the link to the second destination must have cost 0.2.
+- Do not treat transport costs as unordered numerical values. Preserve product-specific and destination-specific transport costs on the matching links.
+- If route capacities are stated collectively, expand them to every affected transport link.
+- If prose says all transport links have capacity 1000, assign capacity 1000 to every transport link.
+- If prose gives product-specific collective capacity statements such as all manure routes have capacity 1000 and the compost route has capacity 1000, assign those capacities to the matching product-specific routes.
+- Do not leave transport_links[].capacity null when a collective capacity statement applies.
 - Put per-unit technology operating costs on technologies[].cost when a transformation cost is stated.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
