@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "midterm1_manure_q4",
+  "prompts": [
+    {
+      "id": "canonical",
+      "label": "Canonical compost pathway wording",
+      "expected_solver_ready": true,
+      "text": "Continue Question 3. The Eau Claire dairy farmer produces 1000 tons of dairy manure and is willing to pay 0.7 dollars per ton to anyone who takes it. Menomonie is under the DNR policy and has an effective manure bid of -0.5 dollars per ton with capacity 500 tons. Black River Falls values manure at 1.5 dollars per ton with capacity 500 tons. Add a Madison compost consumer that will pay 100 dollars per ton of compost and can accept up to 100 tons. Compost transport to Madison costs 1 dollar per ton. The dairy farmer has a Composter technology at the composting node with capacity 500 tons of manure processed, operating cost 1 dollar per ton manure processed, and yield coefficients DM = -1.0 and Compost = 0.1. Transport links are DF to CF for DM with capacity 1000 and cost 0.1, DF to SF for DM with capacity 1000 and cost 0.2, DF to Composter for DM with capacity 1000 and cost 0.0, and Composter to DC for Compost with capacity 1000 and cost 1.0. Maximize cooperative profit and report flows, activity, objective value, manure removed, and compost produced."
+    },
+    {
+      "id": "paraphrased",
+      "label": "Paraphrased compost pathway wording",
+      "expected_solver_ready": true,
+      "text": "Formulate the fourth manure benchmark. The source at Eau Claire has 1000 tons of dairy manure and offers a 0.7 dollar per ton removal payment. The Menomonie receiver has net willingness -0.5 dollars per ton and a 500 ton limit, while the Black River Falls receiver has value 1.5 dollars per ton and a 500 ton limit. In addition, compost can be shipped to a Madison demand site that pays 100 dollars per ton and can receive 100 tons; that compost shipment costs 1 dollar per ton. A composter can process at most 500 tons of manure, costs 1 dollar per ton of manure processed, consumes 1 ton of manure per activity unit, and produces 0.1 ton of compost per activity unit. Manure hauling options from the dairy source are to Menomonie at 0.1, to Black River Falls at 0.2, and to the composter at 0.0, all with 1000 ton route capacities. Find the profit-maximizing solution and verify the balances."
+    },
+    {
+      "id": "ambiguous",
+      "label": "Alias-heavy compost pathway wording",
+      "expected_solver_ready": true,
+      "text": "Use the Q3 manure setting, then add composting. DF in Eau Claire supplies 1000 tons of DM with bid -0.7. CF in Menomonie demands DM with bid -0.5 and capacity 500. SF in Black River Falls demands DM with bid 1.5 and capacity 500. DC in Madison demands Compost with bid 100 and capacity 100. Routes are DF->CF for DM at cost 0.1, DF->SF for DM at cost 0.2, DF->Composter for DM at cost 0, and Composter->DC for Compost at cost 1; each route capacity is 1000. The Composter capacity is 500, operating cost is 1 per ton manure processed, and yields are DM -1.0 and Compost 0.1. Solve the coordinated market clearing problem."
+    }
+  ]
+}

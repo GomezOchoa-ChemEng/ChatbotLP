@@ -56,6 +56,7 @@ def make_transformation_state():
             id="tech1",
             node="plant",
             capacity=3.0,
+            cost=0.5,
             yield_coefficients={"P1": -1.0, "P2": 0.8},
         )
     )
@@ -115,9 +116,62 @@ def test_build_data_from_state_includes_technology_fields():
     assert data["technologies"] == ["tech1"]
     assert data["technology_nodes"]["tech1"] == "plant"
     assert data["technology_capacities"]["tech1"] == 3.0
-    assert data["technology_costs"]["tech1"] == 0.0
+    assert data["technology_costs"]["tech1"] == 0.5
     assert data["technology_yields"][("tech1", "P1")] == -1.0
     assert data["technology_yields"][("tech1", "P2")] == 0.8
+
+
+def test_generic_technology_cost_is_not_tied_to_q4_names():
+    state = ProblemState(problem_title="Generic smelting transformation")
+    state.add_node(Node(id="mine"))
+    state.add_node(Node(id="mill"))
+    state.add_node(Node(id="factory"))
+    state.add_product(Product(id="Ore"))
+    state.add_product(Product(id="Ingot"))
+    state.add_supplier(Supplier(id="ore_supplier", node="mine", product="Ore", capacity=40.0))
+    state.add_consumer(Consumer(id="ingot_buyer", node="factory", product="Ingot", capacity=12.0))
+    state.add_technology(
+        Technology(
+            id="smelter",
+            node="mill",
+            capacity=20.0,
+            cost=7.25,
+            yield_coefficients={"Ore": -2.0, "Ingot": 0.6},
+        )
+    )
+    state.add_bid(
+        Bid(
+            id="ore_bid",
+            owner_id="ore_supplier",
+            owner_type="supplier",
+            product_id="Ore",
+            price=3.0,
+            quantity=40.0,
+        )
+    )
+    state.add_bid(
+        Bid(
+            id="ingot_bid",
+            owner_id="ingot_buyer",
+            owner_type="consumer",
+            product_id="Ingot",
+            price=50.0,
+            quantity=12.0,
+        )
+    )
+
+    data = _build_data_from_state(state)
+    instance = build_market_instance(state)
+    model = build_model_from_state(state)
+
+    assert data["technologies"] == ["smelter"]
+    assert data["technology_capacities"]["smelter"] == 20.0
+    assert data["technology_costs"]["smelter"] == 7.25
+    assert data["technology_yields"][("smelter", "Ore")] == -2.0
+    assert data["technology_yields"][("smelter", "Ingot")] == 0.6
+    assert instance.technologies[0].cost == 7.25
+    assert instance.technologies[0].yield_coefficients == {"Ore": -2.0, "Ingot": 0.6}
+    assert "smelter" in model.K
 
 
 def test_build_market_instance_creates_lightweight_machine_object():
@@ -129,6 +183,7 @@ def test_build_market_instance_creates_lightweight_machine_object():
     assert instance.products == ["P1", "P2"]
     assert len(instance.bids) == 2
     assert len(instance.technologies) == 1
+    assert instance.technologies[0].cost == 0.5
     assert instance.technologies[0].yield_coefficients["P2"] == 0.8
 
 

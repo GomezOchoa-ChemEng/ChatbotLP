@@ -127,6 +127,7 @@ Requirements:
 - Do not invent extra nodes, products, links, bids, or technologies just to make the model complete.
 - If something important is missing or ambiguous, keep the missing field as null and record it in missing_information or ambiguities.
 - Put per-unit transportation costs on transport_links[].cost. Do not encode transport costs as supplier or consumer bids.
+- Put per-unit technology operating costs on technologies[].cost when a transformation cost is stated.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
 - Keep the structure lightweight and solver-ready.
@@ -142,7 +143,7 @@ Required JSON shape:
   "consumers": [{{"id": "C1", "node": "N2", "product": "P1", "capacity": 10.0}}],
   "transport_links": [{{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 10.0, "cost": 0.0}}],
   "bids": [{{"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 1.0, "quantity": 10.0}}],
-  "technologies": [{{"id": "K1", "node": "N1", "capacity": 5.0, "yield_coefficients": {{"P1": -1.0, "P2": 0.8}}}}],
+  "technologies": [{{"id": "K1", "node": "N1", "capacity": 5.0, "cost": 0.0, "yield_coefficients": {{"P1": -1.0, "P2": 0.8}}}}],
   "missing_information": ["short string"],
   "ambiguities": ["short string"]
 }}
@@ -231,6 +232,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
             id=technology_data["id"],
             node=_resolve_reference(technology_data.get("node"), node_aliases),
             capacity=technology_data.get("capacity"),
+            cost=technology_data.get("cost", 0.0) or 0.0,
             yield_coefficients={
                 _resolve_reference(product_id, product_aliases): coefficient
                 for product_id, coefficient in technology_data.get("yield_coefficients", {}).items()

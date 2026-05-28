@@ -138,6 +138,12 @@ def validate_state(state: ProblemState) -> Dict:
         if tech.yield_coefficients and (tech.capacity is None or tech.capacity <= 0):
             incomplete_techs.append(tech.id)
             missing.append(f"technology:{tech.id} missing positive capacity for transformation")
+        try:
+            cost = float(getattr(tech, "cost", 0.0))
+            if cost != cost or cost in (float("inf"), float("-inf")):
+                missing.append(f"technology:{tech.id} cost is not finite: {cost}")
+        except (TypeError, ValueError):
+            missing.append(f"technology:{tech.id} cost not numeric: {getattr(tech, 'cost', None)}")
 
     # Bids and references
     owner_sets = {

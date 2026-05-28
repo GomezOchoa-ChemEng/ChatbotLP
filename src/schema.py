@@ -83,6 +83,7 @@ class Technology(BaseModel):
     id: str
     node: str
     capacity: Optional[float] = None
+    cost: Optional[float] = 0.0
     # yield_coefficients maps product_id -> coefficient (output per unit input)
     # Negative coefficients are allowed when a technology *consumes* a resource
     yield_coefficients: Dict[str, float] = Field(default_factory=dict)

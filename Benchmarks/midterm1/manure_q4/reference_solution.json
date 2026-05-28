@@ -1,0 +1,154 @@
+{
+  "benchmark_id": "midterm1_manure_q4",
+  "objective_value": 5800.0,
+  "demand_revenue": 5750.0,
+  "supply_cost": -700.0,
+  "supply_contribution": 700.0,
+  "transport_cost": 150.0,
+  "technology_cost": 500.0,
+  "accepted_supply": {
+    "Dairy/EauClaire": 1000.0
+  },
+  "accepted_demands": {
+    "Menomonie": 0.0,
+    "BlackRiverFalls": 500.0,
+    "Madison": 50.0
+  },
+  "transport_flows": {
+    "EauClaire_to_Menomonie": 0.0,
+    "EauClaire_to_BlackRiverFalls": 500.0,
+    "EauClaire_to_Composter": 500.0,
+    "Composter_to_Madison:Compost": 50.0
+  },
+  "technology_activity": {
+    "Composter": 500.0
+  },
+  "technology_outputs": {
+    "Compost": 50.0
+  },
+  "route_net_values": {
+    "EauClaire_to_Menomonie": 0.1,
+    "EauClaire_to_BlackRiverFalls": 2.0
+  },
+  "pathway_net_values_per_input": {
+    "EauClaire_to_Composter_to_Madison_Compost": 9.6
+  },
+  "balance_checks": {
+    "BlackRiverFalls:Manure": {
+      "supply": 0.0,
+      "accepted_demand": 500.0,
+      "incoming_flow": 500.0,
+      "outgoing_flow": 0.0,
+      "technology_net": 0.0,
+      "residual": 0.0,
+      "holds": true
+    },
+    "Composter:Compost": {
+      "supply": 0.0,
+      "accepted_demand": 0.0,
+      "incoming_flow": 0.0,
+      "outgoing_flow": 50.0,
+      "technology_net": 50.0,
+      "residual": 0.0,
+      "holds": true
+    },
+    "Composter:Manure": {
+      "supply": 0.0,
+      "accepted_demand": 0.0,
+      "incoming_flow": 500.0,
+      "outgoing_flow": 0.0,
+      "technology_net": -500.0,
+      "residual": 0.0,
+      "holds": true
+    },
+    "EauClaire:Manure": {
+      "supply": 1000.0,
+      "accepted_demand": 0.0,
+      "incoming_flow": 0.0,
+      "outgoing_flow": 1000.0,
+      "technology_net": 0.0,
+      "residual": 0.0,
+      "holds": true
+    },
+    "Madison:Compost": {
+      "supply": 0.0,
+      "accepted_demand": 50.0,
+      "incoming_flow": 50.0,
+      "outgoing_flow": 0.0,
+      "technology_net": 0.0,
+      "residual": 0.0,
+      "holds": true
+    },
+    "Menomonie:Manure": {
+      "supply": 0.0,
+      "accepted_demand": 0.0,
+      "incoming_flow": 0.0,
+      "outgoing_flow": 0.0,
+      "technology_net": 0.0,
+      "residual": 0.0,
+      "holds": true
+    }
+  },
+  "expected_semantic_metrics": {
+    "entity_counts": {
+      "products": 2,
+      "products_include_manure": true,
+      "products_include_compost": true,
+      "source_supplier_entities": 1,
+      "manure_source_supplier_entities": 1,
+      "demand_consumer_entities": 3,
+      "manure_demand_consumer_entities": 2,
+      "compost_demand_consumer_entities": 1,
+      "transport_paths": 4,
+      "manure_transport_paths_from_source": 3,
+      "compost_transport_paths_to_compost_sink": 1,
+      "technologies": 1
+    },
+    "supplier_capacities": [1000.0],
+    "consumer_capacities": [500.0, 500.0, 100.0],
+    "consumer_bid_prices": [-0.5, 1.5, 100.0],
+    "supplier_bid_prices": [-0.7],
+    "transport_costs": [0.0, 0.1, 0.2, 1.0],
+    "transport_capacities": [1000.0, 1000.0, 1000.0, 1000.0],
+    "transport_product_semantics": ["Manure", "Manure", "Manure", "Compost"],
+    "negative_bid_expected": true,
+    "negative_supplier_bid_expected": true,
+    "supplier_removal_payment": 0.7,
+    "route_net_values": [0.1, 2.0],
+    "technology_pathway_net_values_per_input": [9.6],
+    "technology": {
+      "count": 1,
+      "input_products": ["Manure"],
+      "output_products": ["Compost"],
+      "input_coefficients": [-1.0],
+      "output_coefficients": [0.1],
+      "capacities": [500.0],
+      "operating_costs": [1.0]
+    },
+    "solver_aggregates": {
+      "objective_value": 5800.0,
+      "demand_revenue": 5750.0,
+      "supply_cost": -700.0,
+      "supply_contribution": 700.0,
+      "transport_cost": 150.0,
+      "technology_cost": 500.0,
+      "total_accepted_supply": 1000.0,
+      "total_accepted_demand": 550.0,
+      "total_transport_flow": 1050.0,
+      "active_transport_routes": 3,
+      "sorted_active_flow_values": [50.0, 500.0, 500.0],
+      "sorted_active_manure_flow_values": [500.0, 500.0],
+      "sorted_active_compost_flow_values": [50.0],
+      "sorted_accepted_demand_values": [50.0, 500.0],
+      "technology_activity": 500.0,
+      "total_manure_removed": 1000.0,
+      "total_compost_produced": 50.0
+    }
+  },
+  "q3_comparison": {
+    "q3_objective": 1050.0,
+    "q4_objective": 5800.0,
+    "improvement": 4750.0
+  },
+  "qualitative_answer": "The compost technology is used because 500 tons of manure processed into 50 tons of compost creates high Madison compost value after transport and operating costs, so the cooperative removes all 1000 tons of manure and increases profit by 4750 relative to Q3."
+}
