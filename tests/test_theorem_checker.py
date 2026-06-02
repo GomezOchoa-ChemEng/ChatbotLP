@@ -68,6 +68,7 @@ def make_case_c():
             id="t1",
             node="n",
             capacity=10,
+            cost=0.0,
             yield_coefficients={"p": -1.0, "p2": 0.8},
         )
     )

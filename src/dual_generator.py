@@ -7,10 +7,19 @@ from typing import Any, Dict, List
 from pyomo.environ import ConcreteModel, ConstraintList, Objective, Reals, Set, Var, minimize
 
 from .schema import ProblemState
+from .validator import validate_state
 
 
 def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
     """Build a compact structured representation of the current primal model."""
+
+    validation = validate_state(state)
+    if not validation["solver_ready"]:
+        details = validation["missing_parameters"] + validation["invalid_references"]
+        raise ValueError(
+            "Cannot generate primal or dual formulation with missing required parameters: "
+            + "; ".join(dict.fromkeys(details))
+        )
 
     supplier_map = {supplier.id: supplier for supplier in state.suppliers}
     consumer_map = {consumer.id: consumer for consumer in state.consumers}
@@ -88,7 +97,7 @@ def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
 
     for link in state.transport_links:
         variable_name = f"f_{{{link.origin},{link.destination}}}"
-        transport_cost = float(getattr(link, "cost", 0.0) or 0.0)
+        transport_cost = float(link.cost)
         variables.append(
             {
                 "name": variable_name,
@@ -124,22 +133,23 @@ def build_primal_representation(state: ProblemState) -> Dict[str, Any]:
 
     for tech in state.technologies:
         variable_name = f"x_{{{tech.id}}}"
+        technology_cost = float(tech.cost)
         variables.append(
             {
                 "name": variable_name,
                 "symbol": variable_name,
                 "domain": ">= 0",
                 "technology_id": tech.id,
-                "objective_coefficient": 0.0,
+                "objective_coefficient": -technology_cost,
                 "variable_class": "technology_activity",
                 "owner_node": tech.node,
             }
         )
         objective_terms.append(
             {
-                "coefficient": 0.0,
+                "coefficient": -technology_cost,
                 "symbol": variable_name,
-                "interpretation": "technology activity term (explicit cost defaults to 0 in current deterministic model)",
+                "interpretation": "technology activity cost term",
                 "node": tech.node,
                 "product": None,
             }
@@ -264,7 +274,7 @@ def infer_negative_bid_notes(state: ProblemState) -> List[str]:
     """Collect notes relevant to negative bids."""
 
     notes = []
-    negative_bids = [bid for bid in state.bids if bid.price < 0]
+    negative_bids = [bid for bid in state.bids if bid.price is not None and bid.price < 0]
     if negative_bids:
         notes.append(f"Detected {len(negative_bids)} negative bid(s) in the current state.")
         notes.extend(

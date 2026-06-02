@@ -104,7 +104,11 @@ def _generate_narrative_interpretation(semantic_plan: Dict[str, Any]) -> str:
     if technologies:
         lines.append(f"Technologies: {len(technologies)} transformation option(s).")
     if bids:
-        negative_bid_count = sum(1 for bid in bids if float(bid.get("price", 0)) < 0)
+        negative_bid_count = sum(
+            1
+            for bid in bids
+            if bid.get("price") is not None and float(bid["price"]) < 0
+        )
         if negative_bid_count:
             lines.append(f"Negative bids detected: {negative_bid_count}.")
     if missing_information:
@@ -141,6 +145,7 @@ Requirements:
 - Do not leave transport_links[].capacity null when a collective capacity statement applies.
 - Do not list transport costs or capacities separately from transport_links; store them in each individual transport link record.
 - Put per-unit technology operating costs on technologies[].cost when a transformation cost is stated.
+- Do not replace missing numerical values with zero. Preserve null until the user provides a value or explicitly confirms a zero/default assumption.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
 - Keep the structure lightweight and solver-ready.
@@ -236,7 +241,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
             destination=_resolve_reference(transport_data.get("destination"), node_aliases),
             product=_resolve_reference(transport_data.get("product"), product_aliases),
             capacity=transport_data.get("capacity"),
-            cost=transport_data.get("cost", 0.0) or 0.0,
+            cost=transport_data.get("cost"),
         )
         state.add_transport(
             transport
@@ -247,7 +252,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
             id=technology_data["id"],
             node=_resolve_reference(technology_data.get("node"), node_aliases),
             capacity=technology_data.get("capacity"),
-            cost=technology_data.get("cost", 0.0) or 0.0,
+            cost=technology_data.get("cost"),
             yield_coefficients={
                 _resolve_reference(product_id, product_aliases): coefficient
                 for product_id, coefficient in technology_data.get("yield_coefficients", {}).items()
@@ -271,7 +276,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
                 owner_id=_resolve_reference(bid_data.get("owner_id"), owner_aliases.get(owner_type, {})),
                 owner_type=owner_type,
                 product_id=_resolve_reference(bid_data.get("product_id"), product_aliases),
-                price=bid_data["price"],
+                price=bid_data.get("price"),
                 quantity=bid_data.get("quantity"),
             )
         )

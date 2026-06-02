@@ -23,6 +23,7 @@ from .schema import (
     MarketTransportRecord,
     ProblemState,
 )
+from .validator import validate_state
 
 
 def build_market_instance(state: ProblemState) -> MarketInstance:
@@ -62,7 +63,7 @@ def build_market_instance(state: ProblemState) -> MarketInstance:
             destination=link.destination,
             product_id=link.product,
             capacity=link.capacity,
-            cost=float(getattr(link, "cost", 0.0) or 0.0),
+            cost=link.cost,
         )
         for link in state.transport_links
     ]
@@ -72,7 +73,7 @@ def build_market_instance(state: ProblemState) -> MarketInstance:
             id=technology.id,
             node=technology.node,
             capacity=technology.capacity,
-            cost=float(getattr(technology, "cost", 0.0) or 0.0),
+            cost=technology.cost,
             yield_coefficients=dict(technology.yield_coefficients),
         )
         for technology in state.technologies
@@ -161,6 +162,7 @@ def _build_data_from_state(state: ProblemState) -> Dict[str, Any]:
 
 
 def build_model(data: Dict[str, Any]) -> ConcreteModel:
+    _raise_for_missing_model_data(data)
     model = ConcreteModel()
     model.dual = Suffix(direction=Suffix.IMPORT)
 
@@ -188,11 +190,11 @@ def build_model(data: Dict[str, Any]) -> ConcreteModel:
             if data["bids"][bid_id]["type"] == "consumer"
         )
         transport_cost = sum(
-            data["transport_costs"].get((origin, destination), 0.0) * m.f[origin, destination]
+            data["transport_costs"][(origin, destination)] * m.f[origin, destination]
             for origin, destination in m.T
         )
         technology_cost = sum(
-            data["technology_costs"].get(technology_id, 0.0) * m.x[technology_id]
+            data["technology_costs"][technology_id] * m.x[technology_id]
             for technology_id in m.K
         )
         return consumer_term - supplier_term - transport_cost - technology_cost
@@ -268,11 +270,87 @@ def build_model(data: Dict[str, Any]) -> ConcreteModel:
 
 
 def build_model_from_market_instance(instance: MarketInstance) -> ConcreteModel:
+    _raise_for_missing_market_parameters(instance)
     return build_model(_build_data_from_market_instance(instance))
 
 
 def build_model_from_state(state: ProblemState) -> ConcreteModel:
+    validation = validate_state(state)
+    if not validation["solver_ready"]:
+        details = validation["missing_parameters"] + validation["invalid_references"]
+        raise ValueError(_missing_parameter_message(details))
     return build_model_from_market_instance(build_market_instance(state))
+
+
+def _raise_for_missing_market_parameters(instance: MarketInstance) -> None:
+    missing = []
+    for bid in instance.bids:
+        if bid.price is None:
+            missing.append(f"bid:{bid.id} missing price")
+        if bid.quantity is None:
+            missing.append(f"bid:{bid.id} missing quantity")
+    for link in instance.transport_links:
+        if link.cost is None:
+            missing.append(f"transport:{link.id} missing cost")
+        if link.capacity is None:
+            missing.append(f"transport:{link.id} missing capacity")
+    for technology in instance.technologies:
+        if technology.cost is None:
+            missing.append(f"technology:{technology.id} missing cost")
+        if technology.capacity is None:
+            missing.append(f"technology:{technology.id} missing capacity")
+        coefficients = list(technology.yield_coefficients.values())
+        if (
+            not coefficients
+            or any(coefficient is None for coefficient in coefficients)
+            or not any(coefficient is not None and coefficient < 0 for coefficient in coefficients)
+            or not any(coefficient is not None and coefficient > 0 for coefficient in coefficients)
+        ):
+            missing.append(f"technology:{technology.id} missing input/output yield")
+    if missing:
+        raise ValueError(_missing_parameter_message(missing))
+
+
+def _raise_for_missing_model_data(data: Dict[str, Any]) -> None:
+    missing = []
+    for bid_id, bid in data.get("bids", {}).items():
+        if bid.get("value") is None:
+            missing.append(f"bid:{bid_id} missing price")
+        if bid.get("quantity") is None:
+            missing.append(f"bid:{bid_id} missing quantity")
+    for arc in data.get("transport_arcs", []):
+        link_id = data.get("transport_arc_ids", {}).get(arc, str(arc))
+        if data.get("transport_costs", {}).get(arc) is None:
+            missing.append(f"transport:{link_id} missing cost")
+        if data.get("transport_capacities", {}).get(arc) is None:
+            missing.append(f"transport:{link_id} missing capacity")
+    for technology_id in data.get("technologies", []):
+        if data.get("technology_costs", {}).get(technology_id) is None:
+            missing.append(f"technology:{technology_id} missing cost")
+        if data.get("technology_capacities", {}).get(technology_id) is None:
+            missing.append(f"technology:{technology_id} missing capacity")
+        coefficients = [
+            coefficient
+            for (raw_id, _product_id), coefficient in data.get("technology_yields", {}).items()
+            if raw_id == technology_id
+        ]
+        if (
+            not coefficients
+            or any(coefficient is None for coefficient in coefficients)
+            or not any(coefficient is not None and coefficient < 0 for coefficient in coefficients)
+            or not any(coefficient is not None and coefficient > 0 for coefficient in coefficients)
+        ):
+            missing.append(f"technology:{technology_id} missing input/output yield")
+    if missing:
+        raise ValueError(_missing_parameter_message(missing))
+
+
+def _missing_parameter_message(missing: Any) -> str:
+    details = "; ".join(dict.fromkeys(str(item) for item in missing))
+    return (
+        "Cannot build optimization model with missing required parameters: "
+        f"{details}. Provide the values or confirm explicit assumptions before solving."
+    )
 
 
 __all__ = [

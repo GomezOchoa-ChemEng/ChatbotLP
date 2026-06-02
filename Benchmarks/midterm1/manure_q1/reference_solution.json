@@ -36,5 +36,8 @@
       "holds": true
     }
   },
+  "expected_semantic_metrics": {
+    "transport_capacities": [1000.0, 1000.0]
+  },
   "qualitative_answer": "The dairy farmer can get rid of all manure because total profitable demand capacity equals 1000 tons."
 }

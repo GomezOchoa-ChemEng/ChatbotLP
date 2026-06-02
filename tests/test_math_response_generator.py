@@ -47,6 +47,7 @@ def make_case_c_state() -> ProblemState:
             id="K1",
             node="n1",
             capacity=6,
+            cost=0.0,
             yield_coefficients={"p1": -1.0, "p2": 0.8},
         )
     )

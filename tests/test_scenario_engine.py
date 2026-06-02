@@ -56,12 +56,13 @@ def make_simple_state():
 def make_case_c_state():
     s = make_simple_state()
     s.add_product(Product(id="p2"))
-    s.add_transport(TransportLink(id="t12", origin="n", destination="n", product="p", capacity=100))
+    s.add_transport(TransportLink(id="t12", origin="n", destination="n", product="p", capacity=100, cost=0.0))
     s.add_technology(
         Technology(
             id="tech1",
             node="n",
             capacity=100,
+            cost=0.0,
             yield_coefficients={"p": -1.0, "p2": 0.8},
         )
     )

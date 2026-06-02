@@ -315,7 +315,7 @@ def _summarize_validation_gaps(validation: Dict[str, Any]) -> str:
     return (
         "I interpreted the prose into a structured problem, but some information is still missing or inconsistent:\n"
         f"{preview}{suffix}\n"
-        "Add the missing capacities, bid details, or references and I can try solving it."
+        "Provide the missing values or confirm explicit assumptions, such as an intentional zero cost, and I can try solving it."
     )
 
 
@@ -548,6 +548,12 @@ def run_chatbot_session(
         elif intent == "solve":
             diag = validate_state(state)
             market_instance = build_market_instance(state)
+            result["validation_result"] = diag
+            result["market_instance"] = market_instance
+            if not diag["solver_ready"]:
+                result["response"] = _summarize_validation_gaps(diag)
+                result["success"] = False
+                return result
             model = build_model_from_market_instance(market_instance)
             raw_solve_result = solve_model(model)
             solve_result = normalize_solve_result(raw_solve_result)
@@ -633,10 +639,15 @@ def run_chatbot_session(
 
         elif intent == "scenario":
             extraction = extract_scenario_request(state, user_message)
+            validation = validate_state(state)
             result["response_mode"] = "solver_grounded_verification"
             result["scenario_extraction"] = extraction
+            result["validation_result"] = validation
 
-            if extraction.get("missing"):
+            if not validation["solver_ready"]:
+                result["response"] = _summarize_validation_gaps(validation)
+                result["success"] = False
+            elif extraction.get("missing"):
                 missing_text = ", ".join(extraction["missing"])
                 result["response"] = (
                     "Could not fully ground the scenario request.\n\n"
@@ -668,15 +679,13 @@ def run_chatbot_session(
                 result["success"] = True
 
         else:
+            validation = validate_state(state)
             context = {
                 "type": "explanation",
                 "user_message": user_message,
                 "intent": intent,
                 "problem_state": state,
-                "validation_result": {
-                    "missing_parameters": state.missing_parameters,
-                    "solver_ready": state.solver_ready(),
-                },
+                "validation_result": validation,
             }
             result["response"], result["response_metadata"] = generate_response_with_metadata(
                 mode,

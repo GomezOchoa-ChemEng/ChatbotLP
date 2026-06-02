@@ -54,12 +54,13 @@ def make_minimal_state():
 def make_case_c_state():
     s = make_minimal_state()
     s.add_product(Product(id="p2"))
-    s.add_transport(TransportLink(id="t1", origin="n1", destination="n1", product="p1", capacity=100))
+    s.add_transport(TransportLink(id="t1", origin="n1", destination="n1", product="p1", capacity=100, cost=0.0))
     s.add_technology(
         Technology(
             id="tech1",
             node="n1",
             capacity=100,
+            cost=0.0,
             yield_coefficients={"p1": -1.0, "p2": 0.8},
         )
     )
@@ -195,6 +196,28 @@ class TestSolve:
         assert result["market_instance"].problem_title == state.problem_title
         assert "bid_allocations" in result["plotting_data"]
         assert result["solver_results"].solver_name == "glpk"
+
+    def test_solve_refuses_missing_route_cost_and_requests_explicit_value(self, monkeypatch):
+        state = make_minimal_state()
+        state.add_transport(
+            TransportLink(
+                id="t_missing_cost",
+                origin="n1",
+                destination="n1",
+                product="p1",
+                capacity=10.0,
+            )
+        )
+        solve_model = Mock()
+        monkeypatch.setattr("src.chatbot_engine.solve_model", solve_model)
+
+        result = run_chatbot_session(state, "Solve the model")
+
+        assert result["success"] is False
+        assert result["validation_result"]["solver_ready"] is False
+        assert "transport:t_missing_cost missing cost" in result["response"]
+        assert "confirm explicit assumptions" in result["response"]
+        solve_model.assert_not_called()
 
 
 class TestTheoremCheck:
@@ -371,7 +394,7 @@ class TestChatbotEngineLLMIntegration:
             "products": [{"id": "P1"}],
             "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
             "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0, "cost": 0.0}],
             "bids": [
                 {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
                 {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},

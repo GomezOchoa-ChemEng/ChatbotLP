@@ -27,6 +27,9 @@ Expected Question 1 solution:
 - Supply cost: 0
 - Total profit: 850
 
+The Julia reference notebook sets both transportation-route capacities to
+1000 tons.
+
 Run locally from the repository root:
 
 ```bash

@@ -8,7 +8,7 @@ def _add_minimal_entities(state):
     state.add_product(Product(id="p"))
     state.add_supplier(Supplier(id="s", node="n", product="p", capacity=10))
     state.add_consumer(Consumer(id="c", node="n", product="p", capacity=5))
-    state.add_bid(Bid(id="b", owner_id="s", owner_type="supplier", product_id="p", price=1.0))
+    state.add_bid(Bid(id="b", owner_id="s", owner_type="supplier", product_id="p", price=1.0, quantity=10))
 
 # ensure src importable
 sys.path.insert(0, str(Path.cwd()))

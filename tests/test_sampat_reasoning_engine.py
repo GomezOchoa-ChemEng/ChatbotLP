@@ -72,6 +72,7 @@ def test_reasoning_engine_collects_model_artifacts_for_technology_question():
             id="t1",
             node="n1",
             capacity=4,
+            cost=0.0,
             yield_coefficients={"p1": -1.0, "p2": 0.8},
         )
     )

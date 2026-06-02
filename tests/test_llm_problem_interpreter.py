@@ -84,7 +84,7 @@ class TestStateConstruction:
             "products": [{"id": "P1", "name": "Product A"}],
             "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
             "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0, "cost": 0.0}],
             "bids": [
                 {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
                 {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0}
@@ -232,6 +232,57 @@ class TestStateConstruction:
         assert capacities_by_product[("Manure", "A")] == 1000.0
         assert capacities_by_product[("Manure", "K")] == 1000.0
         assert capacities_by_product[("Compost", "D")] == 1000.0
+
+    def test_builder_preserves_missing_route_cost_and_explicit_zero_distinctly(self):
+        plan = {
+            "problem_title": "Missing versus explicit route cost",
+            "nodes": [{"id": "S"}, {"id": "A"}, {"id": "B"}],
+            "products": [{"id": "P"}],
+            "suppliers": [],
+            "consumers": [],
+            "transport_links": [
+                {"id": "missing", "origin": "S", "destination": "A", "product": "P", "capacity": 10.0},
+                {"id": "free", "origin": "S", "destination": "B", "product": "P", "capacity": 10.0, "cost": 0.0},
+            ],
+            "bids": [],
+            "technologies": [],
+        }
+
+        state = build_state_from_semantic_plan(plan)
+
+        assert state.transport_links[0].cost is None
+        assert state.transport_links[1].cost == 0.0
+
+    def test_builder_preserves_missing_technology_cost(self):
+        plan = {
+            "problem_title": "Missing technology cost",
+            "nodes": [{"id": "K"}],
+            "products": [{"id": "P1"}, {"id": "P2"}],
+            "suppliers": [],
+            "consumers": [],
+            "transport_links": [],
+            "technologies": [
+                {
+                    "id": "K1",
+                    "node": "K",
+                    "capacity": 10.0,
+                    "yield_coefficients": {"P1": -1.0, "P2": 0.8},
+                },
+                {
+                    "id": "K2",
+                    "node": "K",
+                    "capacity": 10.0,
+                    "cost": 0.0,
+                    "yield_coefficients": {"P1": -1.0, "P2": 0.8},
+                },
+            ],
+            "bids": [],
+        }
+
+        state = build_state_from_semantic_plan(plan)
+
+        assert state.technologies[0].cost is None
+        assert state.technologies[1].cost == 0.0
 
 
 class TestInterpretationPrompt:
@@ -391,7 +442,7 @@ class TestIntegrationWithValidation:
             "products": [{"id": "P1", "name": "Product 1"}],
             "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
             "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0, "cost": 0.0}],
             "bids": [
                 {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
                 {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0}

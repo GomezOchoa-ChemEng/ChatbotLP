@@ -33,18 +33,21 @@ class Bid(BaseModel):
     """Generic bid/offering record.
 
     Price can be negative to support Case B (negative bidding costs).
-    Quantity is optional; omitting quantity can represent a price-only bid.
+    Missing numeric values remain ``None`` until the user supplies them or
+    explicitly confirms an assumption.
     """
 
     id: str
     owner_id: str
     owner_type: Literal["supplier", "consumer", "transport", "technology"]
     product_id: str
-    price: float
+    price: Optional[float] = None
     quantity: Optional[float] = None
 
     @validator("price")
     def price_is_finite(cls, v):
+        if v is None:
+            return v
         if v != v or v in (float("inf"), float("-inf")):
             raise ValueError("price must be a finite number")
         return v
@@ -70,10 +73,12 @@ class TransportLink(BaseModel):
     destination: str
     product: str
     capacity: Optional[float] = None
-    cost: float = 0.0
+    cost: Optional[float] = None
 
     @validator("cost")
     def cost_is_finite(cls, v):
+        if v is None:
+            return v
         if v != v or v in (float("inf"), float("-inf")):
             raise ValueError("cost must be a finite number")
         return v
@@ -83,10 +88,10 @@ class Technology(BaseModel):
     id: str
     node: str
     capacity: Optional[float] = None
-    cost: Optional[float] = 0.0
+    cost: Optional[float] = None
     # yield_coefficients maps product_id -> coefficient (output per unit input)
     # Negative coefficients are allowed when a technology *consumes* a resource
-    yield_coefficients: Dict[str, float] = Field(default_factory=dict)
+    yield_coefficients: Dict[str, Optional[float]] = Field(default_factory=dict)
 
 
 class MarketBidRecord(BaseModel):
@@ -97,7 +102,7 @@ class MarketBidRecord(BaseModel):
     owner_type: Literal["supplier", "consumer", "transport", "technology"]
     node: Optional[str] = None
     product_id: str
-    price: float
+    price: Optional[float] = None
     quantity: Optional[float] = None
 
 
@@ -109,7 +114,7 @@ class MarketTransportRecord(BaseModel):
     destination: str
     product_id: str
     capacity: Optional[float] = None
-    cost: float = 0.0
+    cost: Optional[float] = None
 
 
 class MarketTechnologyRecord(BaseModel):
@@ -118,8 +123,8 @@ class MarketTechnologyRecord(BaseModel):
     id: str
     node: str
     capacity: Optional[float] = None
-    cost: float = 0.0
-    yield_coefficients: Dict[str, float] = Field(default_factory=dict)
+    cost: Optional[float] = None
+    yield_coefficients: Dict[str, Optional[float]] = Field(default_factory=dict)
 
 
 class MarketInstance(BaseModel):

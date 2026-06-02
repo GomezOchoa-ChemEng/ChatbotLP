@@ -12,7 +12,10 @@ from src.midterm_benchmark import (
     DEFAULT_Q2_BENCHMARK_DIR,
     DEFAULT_Q3_BENCHMARK_DIR,
     DEFAULT_Q4_BENCHMARK_DIR,
+    MIDTERM_Q2_REASONING_PROMPTS,
+    MIDTERM_Q3_REASONING_PROMPTS,
     MidtermBenchmarkConfig,
+    build_active_flow_objective_diagnostics,
     build_supplier_removal_incentive_diagnostics,
     build_midterm_manure_expected_plan,
     build_midterm_manure_q2_expected_plan,
@@ -24,6 +27,7 @@ from src.midterm_benchmark import (
     extract_midterm_solution_components,
     load_benchmark_files,
     run_midterm_manure_q1_benchmark,
+    run_midterm_manure_q2_benchmark,
     run_midterm_manure_q3_benchmark,
     run_midterm_manure_q4_benchmark,
 )
@@ -63,10 +67,93 @@ def test_q3_benchmark_files_load_with_supplier_payment_reference():
     assert "0.7 dollars per ton" in files["problem_statement"]
     assert files["reference_solution"]["benchmark_id"] == "midterm1_manure_q3"
     assert files["reference_solution"]["objective_value"] == 1050.0
+    assert files["reference_solution"]["supply_contribution"] == 700.0
     metrics = files["reference_solution"]["expected_semantic_metrics"]
     assert metrics["consumer_bid_prices"] == [-0.5, 1.5]
     assert metrics["supplier_bid_prices"] == [-0.7]
     assert metrics["supplier_removal_payment"] == 0.7
+
+
+@pytest.mark.parametrize(
+    ("benchmark_dir", "supplier_bid", "route_net_values"),
+    [
+        (DEFAULT_Q2_BENCHMARK_DIR, [0.0], [-0.6, 1.3]),
+        (DEFAULT_Q3_BENCHMARK_DIR, [-0.7], [0.1, 2.0]),
+    ],
+)
+def test_q2_q3_references_encode_strict_jump_route_attributes(
+    benchmark_dir,
+    supplier_bid,
+    route_net_values,
+):
+    metrics = load_benchmark_files(benchmark_dir)["reference_solution"]["expected_semantic_metrics"]
+    links = metrics["transport_links"]
+
+    assert metrics["entity_counts"]["products_include_manure"] is True
+    assert metrics["supplier_bid_prices"] == supplier_bid
+    assert metrics["consumer_bid_prices"] == [-0.5, 1.5]
+    assert metrics["consumer_capacities"] == [500.0, 500.0]
+    assert metrics["transport_capacities"] == [1000.0, 1000.0]
+    assert [(link["destination"], link["cost"], link["capacity"]) for link in links] == [
+        ("Menomonie", 0.1, 1000.0),
+        ("BlackRiverFalls", 0.2, 1000.0),
+    ]
+    assert metrics["route_net_values"] == route_net_values
+
+
+@pytest.mark.parametrize(
+    ("benchmark_dir", "supplier_price"),
+    [
+        (DEFAULT_Q2_BENCHMARK_DIR, "0"),
+        (DEFAULT_Q3_BENCHMARK_DIR, "-0.7"),
+    ],
+)
+def test_q2_q3_prompts_state_bids_costs_and_capacities_explicitly(
+    benchmark_dir,
+    supplier_price,
+):
+    prompts = load_benchmark_files(benchmark_dir)["prompts"]
+
+    for prompt in prompts:
+        text = prompt["text"]
+        assert re.search(rf"supplier bid (?:is|of) {re.escape(supplier_price)} dollars per ton", text)
+        assert "-0.5 dollars per ton" in text
+        assert "0.1 dollars per ton" in text
+        assert "0.2 dollars per ton" in text
+        assert "capacity 1000 tons" in text
+
+
+def test_q2_q3_reasoning_batteries_cover_required_policy_questions():
+    q2_ids = {prompt["id"] for prompt in MIDTERM_Q2_REASONING_PROMPTS}
+    q3_ids = {prompt["id"] for prompt in MIDTERM_Q3_REASONING_PROMPTS}
+
+    assert {"all_manure", "menomonie_diversion", "black_river_falls_use", "negative_consumer_bid"} <= q2_ids
+    assert {
+        "all_manure_with_payment",
+        "negative_supplier_bid_economics",
+        "both_routes_used",
+        "q2_q3_objective_comparison",
+    } <= q3_ids
+
+
+@pytest.mark.parametrize(
+    ("notebook_path", "supplier_bid"),
+    [
+        (Path("Benchmarks/midterm1/SupplyChain_Manure_Q2.ipynb"), "sbid = Dict(zip(S, [0.0]))"),
+        (Path("Benchmarks/midterm1/SupplyChain_Manure_Q3.ipynb"), "sbid = Dict(zip(S, [-0.7]))"),
+    ],
+)
+def test_q2_q3_jump_notebooks_encode_reference_model(notebook_path, supplier_bid):
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    source = "\n".join("".join(cell.get("source", [])) for cell in notebook["cells"])
+
+    assert 'P = ["DM"]' in source
+    assert 'D = ["CF", "SF"]' in source
+    assert supplier_bid in source
+    assert "dbid = Dict(zip(D, [-0.5, 1.5]))" in source
+    assert "fub = Dict(zip(L, [1000, 1000]))" in source
+    assert "fbid = Dict(zip(L, [0.1, 0.2]))" in source
+    assert "@objective(m, Max, dcost - scost - fcost)" in source
 
 
 def test_q4_benchmark_files_load_with_compost_reference():
@@ -335,12 +422,19 @@ def _alias_solve_result():
 
 
 def _build_id_independent_state(
+    source_node="SRC",
+    source_name="dairy source",
     menomonie_node="M",
+    menomonie_name="corn demand",
     corn_consumer_id="C1",
+    black_river_node="SINK2",
+    black_river_name="soybean demand",
     first_link_id="T1",
     supplier_price=0.0,
     menomonie_price=0.5,
     black_river_price=1.5,
+    first_capacity=1000.0,
+    second_capacity=1000.0,
     problem_type="case_a",
 ):
     return build_state_from_semantic_plan(
@@ -348,33 +442,33 @@ def _build_id_independent_state(
             "problem_title": "ID-independent manure state",
             "problem_type": problem_type,
             "nodes": [
-                {"id": "SRC", "name": "dairy source"},
-                {"id": menomonie_node, "name": "corn demand"},
-                {"id": "SINK2", "name": "soybean demand"},
+                {"id": source_node, "name": source_name},
+                {"id": menomonie_node, "name": menomonie_name},
+                {"id": black_river_node, "name": black_river_name},
             ],
             "products": [{"id": "P1", "name": "manure"}],
             "suppliers": [
-                {"id": "S1", "node": "SRC", "product": "P1", "capacity": 1000.0}
+                {"id": "S1", "node": source_node, "product": "P1", "capacity": 1000.0}
             ],
             "consumers": [
                 {"id": corn_consumer_id, "node": menomonie_node, "product": "P1", "capacity": 500.0},
-                {"id": "C2", "node": "SINK2", "product": "P1", "capacity": 500.0},
+                {"id": "C2", "node": black_river_node, "product": "P1", "capacity": 500.0},
             ],
             "transport_links": [
                 {
                     "id": first_link_id,
-                    "origin": "SRC",
+                    "origin": source_node,
                     "destination": menomonie_node,
                     "product": "P1",
-                    "capacity": None,
+                    "capacity": first_capacity,
                     "cost": 0.1,
                 },
                 {
                     "id": "T2",
-                    "origin": "SRC",
-                    "destination": "SINK2",
+                    "origin": source_node,
+                    "destination": black_river_node,
                     "product": "P1",
-                    "capacity": None,
+                    "capacity": second_capacity,
                     "cost": 0.2,
                 },
             ],
@@ -446,6 +540,9 @@ def _build_q4_id_independent_state(
     madison_price=100.0,
     compost_transport_cost=1.0,
     technology_cost=1.0,
+    technology_node_id="K_NODE",
+    technology_node_name="Composter",
+    technology_id="K",
 ):
     return build_state_from_semantic_plan(
         {
@@ -455,7 +552,7 @@ def _build_q4_id_independent_state(
                 {"id": "SRC", "name": "Eau Claire dairy source"},
                 {"id": "M", "name": "Menomonie receiver"},
                 {"id": "BRF", "name": "Black River Falls receiver"},
-                {"id": "K_NODE", "name": "Composter"},
+                {"id": technology_node_id, "name": technology_node_name},
                 {"id": "MAD", "name": "Madison compost demand"},
             ],
             "products": [
@@ -490,14 +587,14 @@ def _build_q4_id_independent_state(
                 {
                     "id": "C",
                     "origin": "SRC",
-                    "destination": "K_NODE",
+                    "destination": technology_node_id,
                     "product": "P1",
                     "capacity": 1000.0,
                     "cost": 0.0,
                 },
                 {
                     "id": "D",
-                    "origin": "K_NODE",
+                    "origin": technology_node_id,
                     "destination": "MAD",
                     "product": "P2",
                     "capacity": 1000.0,
@@ -506,8 +603,8 @@ def _build_q4_id_independent_state(
             ],
             "technologies": [
                 {
-                    "id": "K",
-                    "node": "K_NODE",
+                    "id": technology_id,
+                    "node": technology_node_id,
                     "capacity": technology_capacity,
                     "cost": technology_cost,
                     "yield_coefficients": {"P1": -1.0, "P2": compost_output_coefficient},
@@ -559,6 +656,7 @@ def _q4_id_independent_solve_result(
     compost_flow=50.0,
     technology_activity=500.0,
     madison_demand=50.0,
+    technology_id="K",
 ):
     return {
         "success": True,
@@ -581,7 +679,7 @@ def _q4_id_independent_solve_result(
                 "D": compost_flow,
             },
             "x": {
-                "K": technology_activity,
+                technology_id: technology_activity,
             },
         },
     }
@@ -859,6 +957,8 @@ def test_q2_primary_metrics_pass_with_id_artifacts_and_negative_bid(
         corn_consumer_id=corn_consumer_id,
         first_link_id=first_link_id,
         menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
         problem_type="case_b",
     )
     solve_result = _id_independent_solve_result(
@@ -884,7 +984,12 @@ def test_q2_primary_metrics_pass_with_id_artifacts_and_negative_bid(
 
 
 def test_q2_primary_metrics_fail_when_negative_bid_is_missing():
-    state = _build_id_independent_state(problem_type="case_b", menomonie_price=0.5)
+    state = _build_id_independent_state(
+        problem_type="case_b",
+        menomonie_price=0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+    )
     solve_result = _id_independent_solve_result(
         first_flow=0.0,
         second_flow=500.0,
@@ -899,6 +1004,81 @@ def test_q2_primary_metrics_fail_when_negative_bid_is_missing():
     assert metrics["semantic_structure_pass"] is False
     assert _metric(metrics, "parameter_multiset_metrics", "consumer_bid_prices")["pass"] is False
     assert _metric(metrics, "topology_metrics", "negative_bid_detection")["pass"] is False
+
+
+def test_q2_swapped_route_costs_fail_even_when_cost_multiset_matches():
+    state = _build_id_independent_state(
+        menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+    solve_result = _id_independent_solve_result(
+        first_flow=0.0,
+        second_flow=500.0,
+        objective=700.0,
+        accepted_supply=500.0,
+        first_demand=0.0,
+        second_demand=500.0,
+    )
+
+    metrics = _primary_q2_metrics_for(state, solve_result)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert metrics["route_attribute_binding_pass"] is False
+    assert metrics["route_association_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_binding_error"
+
+
+def test_q2_positive_flow_to_negative_value_menomonie_route_fails():
+    state = _build_id_independent_state(
+        menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    solve_result = _id_independent_solve_result(
+        first_flow=100.0,
+        second_flow=500.0,
+        objective=590.0,
+        accepted_supply=600.0,
+        first_demand=100.0,
+        second_demand=500.0,
+    )
+
+    metrics = _primary_q2_metrics_for(state, solve_result)
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert _metric(metrics, "solve_correctness_metrics", "active_flows_match")["pass"] is False
+
+
+def test_q2_missing_nonbinding_route_capacity_blocks_primary_success():
+    state = _build_id_independent_state(
+        menomonie_price=-0.5,
+        first_capacity=None,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    solve_result = _id_independent_solve_result(
+        first_flow=0.0,
+        second_flow=500.0,
+        objective=650.0,
+        accepted_supply=500.0,
+        first_demand=0.0,
+        second_demand=500.0,
+    )
+
+    metrics = _primary_q2_metrics_for(state, solve_result)
+
+    assert metrics["solve_correctness_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["reasoning_ready_pass"] is False
+    assert metrics["primary_success"] is False
 
 
 @pytest.mark.parametrize(
@@ -916,6 +1096,8 @@ def test_q3_primary_metrics_pass_with_id_artifacts_and_supplier_payment(
         first_link_id=first_link_id,
         supplier_price=-0.7,
         menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
         problem_type="case_b",
     )
     solve_result = _id_independent_solve_result(
@@ -944,6 +1126,8 @@ def test_q3_primary_metrics_fail_when_supplier_payment_is_missing():
     state = _build_id_independent_state(
         supplier_price=0.0,
         menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
         problem_type="case_b",
     )
     solve_result = _id_independent_solve_result(
@@ -959,6 +1143,123 @@ def test_q3_primary_metrics_fail_when_supplier_payment_is_missing():
     assert _metric(metrics, "route_economics_metrics", "sorted_route_net_values")["pass"] is False
 
 
+def test_q3_supplier_payment_attached_to_consumer_instead_of_source_fails():
+    state = _build_id_independent_state(
+        supplier_price=0.0,
+        menomonie_price=-0.7,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    solve_result = _id_independent_solve_result(
+        objective=1050.0,
+        accepted_supply=1000.0,
+    )
+
+    metrics = _primary_q3_metrics_for(state, solve_result)
+
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert _metric(metrics, "parameter_multiset_metrics", "supplier_bid_prices")["pass"] is False
+    assert _metric(metrics, "topology_metrics", "negative_supplier_bid_detection")["pass"] is False
+
+
+def test_q3_swapped_route_costs_fail_despite_correct_objective_and_aggregates():
+    state = _build_id_independent_state(
+        supplier_price=-0.7,
+        menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+    solve_result = _id_independent_solve_result(
+        objective=1050.0,
+        accepted_supply=1000.0,
+    )
+
+    metrics = _primary_q3_metrics_for(state, solve_result)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert _metric(metrics, "solve_correctness_metrics", "objective_match")["pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["reasoning_ready_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_binding_error"
+
+
+def test_q3_reference_diagnostics_do_not_mutate_interpreted_problem_state():
+    state = _build_id_independent_state(
+        supplier_price=0.0,
+        menomonie_price=-0.5,
+        first_capacity=None,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    before = state.model_dump()
+
+    metrics = _primary_q3_metrics_for(
+        state,
+        _id_independent_solve_result(objective=1050.0, accepted_supply=1000.0),
+    )
+
+    assert metrics["primary_success"] is False
+    assert state.model_dump() == before
+
+
+@pytest.mark.parametrize(
+    ("question", "supplier_price", "objective", "first_flow", "accepted_supply"),
+    [
+        ("q2", 0.0, 650.0, 0.0, 500.0),
+        ("q3", -0.7, 1050.0, 500.0, 1000.0),
+    ],
+)
+def test_q2_q3_primary_metrics_pass_with_arbitrary_ids_and_semantic_node_names(
+    question,
+    supplier_price,
+    objective,
+    first_flow,
+    accepted_supply,
+):
+    state = _build_id_independent_state(
+        source_node="NODE_A",
+        source_name="Eau Claire",
+        menomonie_node="NODE_B",
+        menomonie_name="Menomonie",
+        corn_consumer_id="DEMAND_X",
+        black_river_node="NODE_C",
+        black_river_name="Black River Falls",
+        first_link_id="ROUTE_X",
+        supplier_price=supplier_price,
+        menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
+        problem_type="case_b",
+    )
+    solve_result = _id_independent_solve_result(
+        first_link_id="ROUTE_X",
+        first_flow=first_flow,
+        second_flow=500.0,
+        objective=objective,
+        accepted_supply=accepted_supply,
+        first_demand=first_flow,
+        second_demand=500.0,
+    )
+
+    metrics = (
+        _primary_q2_metrics_for(state, solve_result)
+        if question == "q2"
+        else _primary_q3_metrics_for(state, solve_result)
+    )
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
+
+
 def test_q3_supplier_removal_incentive_diagnostics_are_id_independent():
     state = _build_id_independent_state(
         menomonie_node="MN",
@@ -966,6 +1267,8 @@ def test_q3_supplier_removal_incentive_diagnostics_are_id_independent():
         first_link_id="T1",
         supplier_price=-0.7,
         menomonie_price=-0.5,
+        first_capacity=1000.0,
+        second_capacity=1000.0,
         problem_type="case_b",
     )
     solve_result = _id_independent_solve_result(
@@ -1071,7 +1374,7 @@ def test_generic_missing_one_route_capacity_fails_formulation_completeness():
     state = _build_generic_transport_state(first_capacity=100.0, second_capacity=None)
     metrics = _primary_generic_transport_metrics_for(state)
 
-    assert metrics["solve_correctness_pass"] is True
+    assert metrics["solve_correctness_pass"] is False
     assert metrics["formulation_completeness_pass"] is False
     assert metrics["reasoning_ready_pass"] is False
     assert metrics["primary_success"] is False
@@ -1156,11 +1459,11 @@ def test_q4_missing_nonbinding_transport_capacity_is_not_primary_success():
 
     metrics = _primary_q4_metrics_for(state, solve_result)
 
-    assert metrics["solve_correctness_pass"] is True
+    assert metrics["solve_correctness_pass"] is False
     assert metrics["formulation_completeness_pass"] is False
     assert metrics["reasoning_ready_pass"] is False
     assert metrics["primary_success"] is False
-    assert metrics["failure_type"] == "incomplete_formulation_but_solution_equivalent"
+    assert metrics["failure_type"] == "incomplete_formulation_solver_not_ready"
     capacity_row = _metric(
         metrics,
         "formulation_completeness_metrics",
@@ -1183,7 +1486,7 @@ def test_q4_missing_nonbinding_transport_capacity_blocks_reasoning_readiness():
 
 def test_q4_missing_route_cost_fails_solution_and_formulation_completeness():
     state = _build_q4_id_independent_state()
-    state.transport_links[1].cost = 0.0
+    state.transport_links[1].cost = None
     solve_result = _q4_id_independent_solve_result(objective=5900.0)
 
     metrics = _primary_q4_metrics_for(state, solve_result)
@@ -1197,6 +1500,11 @@ def test_q4_missing_route_cost_fails_solution_and_formulation_completeness():
         "formulation_completeness_metrics",
         "transport_cost:EauClaire_to_BlackRiverFalls:Manure",
     )["pass"] is False
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_BlackRiverFalls:Manure",
+    )["cost"] is None
 
 
 def test_q4_fully_recovered_formulation_solves_and_is_reasoning_ready():
@@ -1216,6 +1524,65 @@ def test_q4_exact_id_differences_do_not_cause_primary_failure():
     assert {link.id for link in state.transport_links} == {"A", "B", "C", "D"}
     assert metrics["formulation_completeness_pass"] is True
     assert metrics["primary_success"] is True
+
+
+@pytest.mark.parametrize(
+    ("technology_node_id", "technology_node_name", "technology_id"),
+    [
+        ("N_COMP", "Processing Hub", "T_PROCESS"),
+        ("CN", "ComposterNode", "K_Composter"),
+    ],
+)
+def test_q4_processing_node_role_matching_is_id_independent(
+    technology_node_id,
+    technology_node_name,
+    technology_id,
+):
+    state = _build_q4_id_independent_state(
+        technology_node_id=technology_node_id,
+        technology_node_name=technology_node_name,
+        technology_id=technology_id,
+    )
+    solve_result = _q4_id_independent_solve_result(technology_id=technology_id)
+
+    metrics = _primary_q4_metrics_for(state, solve_result)
+    checks = compare_solution_to_reference(
+        state,
+        solve_result,
+        load_benchmark_files(DEFAULT_Q4_BENCHMARK_DIR)["reference_solution"],
+    )
+    comparison = compare_problem_states_for_midterm(
+        build_state_from_semantic_plan(build_midterm_manure_q4_expected_plan("canonical")),
+        state,
+    )
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
+    assert checks["transport_flow_match"] is True
+    assert checks["technology_activity_match"] is True
+    assert checks["balance_match"] is True
+    assert comparison["structural_match"] is True
+
+
+def test_q4_active_flow_diagnostics_expose_swapped_direct_route_costs():
+    state = _build_q4_id_independent_state()
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+
+    rows = build_active_flow_objective_diagnostics(
+        state,
+        _q4_id_independent_solve_result(objective=5850.0),
+    )
+    black_river_row = next(row for row in rows if row["resolved_destination_role"] == "BlackRiverFalls")
+
+    assert sum(row["transport_cost_contribution"] for row in rows) == pytest.approx(100.0)
+    assert black_river_row["transport_cost_coefficient"] == pytest.approx(0.1)
+    assert black_river_row["transport_cost_contribution"] == pytest.approx(50.0)
+    assert black_river_row["associated_source_bid"] == pytest.approx(-0.7)
+    assert black_river_row["associated_demand_bid"] == pytest.approx(1.5)
+    assert black_river_row["computed_route_net_value"] == pytest.approx(2.1)
 
 
 @pytest.mark.parametrize(
@@ -1315,6 +1682,54 @@ def test_q4_benchmark_runner_includes_technology_table_without_llm(monkeypatch):
     assert set(technology_rows["prompt_id"]) == {"canonical", "paraphrased"}
     assert technology_rows["pass"].all()
     assert route_association_rows["pass"].all()
+
+
+@pytest.mark.parametrize(
+    ("runner", "expected_objective"),
+    [
+        (run_midterm_manure_q1_benchmark, 850.0),
+        (run_midterm_manure_q2_benchmark, 650.0),
+        (run_midterm_manure_q3_benchmark, 1050.0),
+        (run_midterm_manure_q4_benchmark, 5800.0),
+    ],
+)
+def test_midterm_deterministic_canonical_fixtures_pass_primary_flags(runner, expected_objective):
+    report = runner(
+        config=MidtermBenchmarkConfig(
+            prompt_ids=("canonical",),
+            use_llm=False,
+            fallback_to_reference_fixture=True,
+            run_reasoning=False,
+        )
+    )
+
+    case = report["cases"][0]
+    metrics = case["primary_metrics"]
+
+    assert case["solve_result"]["objective_value"] == pytest.approx(expected_objective)
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
+
+
+def test_q4_deterministic_canonical_and_paraphrased_fixtures_pass_primary_flags():
+    report = run_midterm_manure_q4_benchmark(
+        config=MidtermBenchmarkConfig(
+            prompt_ids=("canonical", "paraphrased"),
+            use_llm=False,
+            fallback_to_reference_fixture=True,
+            run_reasoning=False,
+        )
+    )
+
+    summary = report["tables"]["case_summary"]
+
+    assert set(summary["prompt_id"]) == {"canonical", "paraphrased"}
+    assert summary["formulation_completeness_pass"].all()
+    assert summary["solve_correctness_pass"].all()
+    assert summary["reasoning_ready_pass"].all()
+    assert summary["primary_success"].all()
 
 
 def test_q3_benchmark_runner_includes_removal_incentive_table_without_llm(monkeypatch):

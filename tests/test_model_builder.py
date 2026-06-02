@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 from pyomo.environ import value
 
 # ensure src importable
@@ -12,7 +13,7 @@ from src.model_builder import (
     build_model_from_market_instance,
     build_model_from_state,
 )
-from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier, Technology
+from src.schema import Bid, Consumer, Node, ProblemState, Product, Supplier, Technology, TransportLink
 
 
 def make_simple_state():
@@ -225,3 +226,36 @@ def test_transformation_yields_appear_in_node_balance_structure():
 
     assert abs(p1_balance) < 1e-9
     assert abs(p2_balance) < 1e-9
+
+
+def test_model_builder_rejects_missing_route_cost_instead_of_defaulting_to_zero():
+    state = make_simple_state()
+    state.add_transport(
+        TransportLink(id="t1", origin="n1", destination="n1", product="p", capacity=10.0)
+    )
+
+    instance = build_market_instance(state)
+
+    assert instance.transport_links[0].cost is None
+    with pytest.raises(ValueError, match="transport:t1 missing cost"):
+        build_model_from_state(state)
+    with pytest.raises(ValueError, match="transport:t1 missing cost"):
+        build_model_from_market_instance(instance)
+
+
+def test_model_builder_accepts_explicit_zero_route_and_technology_costs():
+    state = make_simple_state()
+    state.add_transport(
+        TransportLink(id="t1", origin="n1", destination="n1", product="p", capacity=10.0, cost=0.0)
+    )
+
+    model = build_model_from_state(state)
+
+    assert "t1" in build_market_instance(state).metadata["transport_ids"]
+    assert len(model.transport_capacity) == 1
+
+    technology_state = make_transformation_state()
+    technology_state.technologies[0].cost = 0.0
+
+    assert build_market_instance(technology_state).technologies[0].cost == 0.0
+    assert "tech1" in build_model_from_state(technology_state).K

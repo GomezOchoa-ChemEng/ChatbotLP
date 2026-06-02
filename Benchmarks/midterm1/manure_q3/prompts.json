@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "midterm1_manure_q3",
+  "prompts": [
+    {
+      "id": "canonical",
+      "label": "Canonical removal incentive wording",
+      "expected_solver_ready": true,
+      "text": "Continue the DNR manure policy case. A dairy farm in Eau Claire produces 1000 tons of waste manure. Menomonie has a consumer bid of -0.5 dollars per ton because of remediation and tipping-fee costs and can accept at most 500 tons. Black River Falls has a consumer bid of 1.5 dollars per ton and can accept at most 500 tons. Transportation costs are 0.1 dollars per ton from Eau Claire to Menomonie and 0.2 dollars per ton from Eau Claire to Black River Falls. Each transport route has capacity 1000 tons. Because the dairy farmer could not get rid of all manure under the prior policy case, the dairy farmer is now willing to pay anyone who takes the manure 0.7 dollars per ton. Encode that removal payment as a dairy supplier bid of -0.7 dollars per ton. Maximize cooperative profit. What is the optimal allocation, objective value, and can the dairy farmer get rid of all manure?"
+    },
+    {
+      "id": "paraphrased",
+      "label": "Paraphrased removal incentive wording",
+      "expected_solver_ready": true,
+      "text": "Formulate the third manure benchmark. The Eau Claire dairy has 1000 tons available and now offers a 0.7 dollar per ton payment for manure removal, represented as a supplier bid of -0.7 dollars per ton at the dairy source. The Menomonie receiver has a consumer bid of -0.5 dollars per ton after the DNR charge and can receive 500 tons. The Black River Falls receiver has a consumer bid of 1.5 dollars per ton and can receive 500 tons. Hauling manure from Eau Claire costs 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Each hauling route has capacity 1000 tons. Find the profit-maximizing flows and verify the balances."
+    },
+    {
+      "id": "ambiguous",
+      "label": "Ambiguous naming with removal incentive",
+      "expected_solver_ready": true,
+      "text": "A manure source near Eau Claire has 1000 tons to dispose of and is willing to pay 0.7 dollars per ton to have it taken away. Represent that source-side payment as a supplier bid of -0.7 dollars per ton. One receiving site near Menomonie has a consumer bid of -0.5 dollars per ton and a 500 ton limit. Another receiving site near Black River Falls has a consumer bid of 1.5 dollars per ton and also has a 500 ton limit. Shipping costs from Eau Claire are 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Each shipping route has capacity 1000 tons. Determine the coordinated profit-maximizing allocation."
+    }
+  ]
+}

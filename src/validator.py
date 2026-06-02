@@ -85,9 +85,8 @@ def validate_state(state: ProblemState) -> Dict:
             except TypeError:
                 missing.append(f"consumer:{c.id} capacity not numeric: {c.capacity}")
 
-    # Check transport links. A missing capacity is interpreted as an
-    # uncapacitated route; model_builder already omits the capacity constraint
-    # when capacity is None.
+    # Keep missing route economics explicit. A future provenance-aware
+    # completion component may fill these values after user confirmation.
     for t in state.transport_links:
         if t.origin not in node_ids:
             invalid_refs.append(f"transport:{t.id} unknown origin {t.origin}")
@@ -95,7 +94,9 @@ def validate_state(state: ProblemState) -> Dict:
             invalid_refs.append(f"transport:{t.id} unknown destination {t.destination}")
         if t.product not in product_ids:
             invalid_refs.append(f"transport:{t.id} unknown product {t.product}")
-        if t.capacity is not None:
+        if t.capacity is None:
+            missing.append(f"transport:{t.id} missing capacity")
+        else:
             try:
                 if t.capacity < 0:
                     missing.append(f"transport:{t.id} has negative capacity {t.capacity}")
@@ -103,21 +104,44 @@ def validate_state(state: ProblemState) -> Dict:
                     issues.append(f"transport:{t.id} has zero capacity")
             except TypeError:
                 missing.append(f"transport:{t.id} capacity not numeric: {t.capacity}")
-        try:
-            cost = float(getattr(t, "cost", 0.0))
-            if cost != cost or cost in (float("inf"), float("-inf")):
-                missing.append(f"transport:{t.id} cost is not finite: {cost}")
-        except (TypeError, ValueError):
-            missing.append(f"transport:{t.id} cost not numeric: {getattr(t, 'cost', None)}")
+        if t.cost is None:
+            missing.append(f"transport:{t.id} missing cost")
+        else:
+            try:
+                cost = float(t.cost)
+                if cost != cost or cost in (float("inf"), float("-inf")):
+                    missing.append(f"transport:{t.id} cost is not finite: {cost}")
+            except (TypeError, ValueError):
+                missing.append(f"transport:{t.id} cost not numeric: {t.cost}")
 
     # Check technologies (transformation)
     for tech in state.technologies:
         if tech.node not in node_ids:
             invalid_refs.append(f"technology:{tech.id} references unknown node {tech.node}")
+        if tech.capacity is None:
+            missing.append(f"technology:{tech.id} missing capacity")
+        else:
+            try:
+                if tech.capacity < 0:
+                    missing.append(f"technology:{tech.id} has negative capacity {tech.capacity}")
+                elif tech.capacity == 0:
+                    issues.append(f"technology:{tech.id} has zero capacity")
+            except TypeError:
+                missing.append(f"technology:{tech.id} capacity not numeric: {tech.capacity}")
+        if tech.cost is None:
+            missing.append(f"technology:{tech.id} missing cost")
+        else:
+            try:
+                cost = float(tech.cost)
+                if cost != cost or cost in (float("inf"), float("-inf")):
+                    missing.append(f"technology:{tech.id} cost is not finite: {cost}")
+            except (TypeError, ValueError):
+                missing.append(f"technology:{tech.id} cost not numeric: {tech.cost}")
+
         yields = tech.yield_coefficients
         if not yields:
             incomplete_techs.append(tech.id)
-            missing.append(f"technology:{tech.id} has empty yield_coefficients")
+            missing.append(f"technology:{tech.id} missing input/output yield")
             continue
         # verify product references
         pos = neg = 0
@@ -125,7 +149,7 @@ def validate_state(state: ProblemState) -> Dict:
             if pid not in product_ids:
                 invalid_refs.append(f"technology:{tech.id} yield references unknown product {pid}")
             if coef is None:
-                missing.append(f"technology:{tech.id} yield for {pid} is None")
+                missing.append(f"technology:{tech.id} missing yield for {pid}")
             else:
                 if coef > 0:
                     pos += 1
@@ -134,16 +158,7 @@ def validate_state(state: ProblemState) -> Dict:
         # incomplete if yields do not show transformation (need both input and output)
         if not (pos >= 1 and neg >= 1):
             incomplete_techs.append(tech.id)
-        # technology capacity should be provided for transforming techs
-        if tech.yield_coefficients and (tech.capacity is None or tech.capacity <= 0):
-            incomplete_techs.append(tech.id)
-            missing.append(f"technology:{tech.id} missing positive capacity for transformation")
-        try:
-            cost = float(getattr(tech, "cost", 0.0))
-            if cost != cost or cost in (float("inf"), float("-inf")):
-                missing.append(f"technology:{tech.id} cost is not finite: {cost}")
-        except (TypeError, ValueError):
-            missing.append(f"technology:{tech.id} cost not numeric: {getattr(tech, 'cost', None)}")
+            missing.append(f"technology:{tech.id} missing input/output yield")
 
     # Bids and references
     owner_sets = {
@@ -161,8 +176,18 @@ def validate_state(state: ProblemState) -> Dict:
             invalid_refs.append(f"bid:{b.id} owner {b.owner_id} not found in {b.owner_type}")
         if b.product_id not in product_ids:
             invalid_refs.append(f"bid:{b.id} references unknown product {b.product_id}")
-        # quantity if provided must be non-negative
-        if b.quantity is not None:
+        if b.price is None:
+            missing.append(f"bid:{b.id} missing price")
+        else:
+            try:
+                price = float(b.price)
+                if price != price or price in (float("inf"), float("-inf")):
+                    missing.append(f"bid:{b.id} price is not finite: {price}")
+            except (TypeError, ValueError):
+                missing.append(f"bid:{b.id} price not numeric: {b.price}")
+        if b.quantity is None:
+            missing.append(f"bid:{b.id} missing quantity")
+        else:
             try:
                 if b.quantity < 0:
                     missing.append(f"bid:{b.id} has negative quantity {b.quantity}")
@@ -170,6 +195,10 @@ def validate_state(state: ProblemState) -> Dict:
                     issues.append(f"bid:{b.id} has zero quantity")
             except TypeError:
                 missing.append(f"bid:{b.id} quantity not numeric: {b.quantity}")
+
+    missing = list(dict.fromkeys(missing))
+    incomplete_techs = list(dict.fromkeys(incomplete_techs))
+    state.missing_parameters = list(missing)
 
     # Solver readiness heuristics
     # solver ready only if no missing, no invalid refs, and no incomplete techs
@@ -183,6 +212,8 @@ def validate_state(state: ProblemState) -> Dict:
     if not any_demand:
         missing.append("no demand-side entities (consumers or technologies) defined")
         solver_ready = False
+    missing = list(dict.fromkeys(missing))
+    state.missing_parameters = list(missing)
 
     # Benchmark compatibility checks
     benchmark_compat: Dict[str, Dict[str, object]] = {}
@@ -195,7 +226,7 @@ def validate_state(state: ProblemState) -> Dict:
 
     # Case B: negative bidding costs => at least one bid.price < 0
     def case_b(state: ProblemState) -> Tuple[bool, str]:
-        neg_bids = [b for b in state.bids if b.price < 0]
+        neg_bids = [b for b in state.bids if b.price is not None and b.price < 0]
         if neg_bids:
             return True, f"found {len(neg_bids)} negative bids"
         return False, "no negative bids found"
@@ -203,8 +234,8 @@ def validate_state(state: ProblemState) -> Dict:
     # Case C: transformation => at least one technology with both negative and positive yields
     def case_c(state: ProblemState) -> Tuple[bool, str]:
         for tech in state.technologies:
-            pos = any(v > 0 for v in tech.yield_coefficients.values())
-            neg = any(v < 0 for v in tech.yield_coefficients.values())
+            pos = any(v is not None and v > 0 for v in tech.yield_coefficients.values())
+            neg = any(v is not None and v < 0 for v in tech.yield_coefficients.values())
             cap_ok = tech.capacity is not None and tech.capacity > 0
             if pos and neg and cap_ok:
                 return True, f"technology {tech.id} has transformation yields and positive capacity"

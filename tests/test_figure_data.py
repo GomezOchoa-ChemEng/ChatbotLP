@@ -16,8 +16,8 @@ def make_case_state() -> ProblemState:
     state.add_product(Product(id="P2"))
     state.add_supplier(Supplier(id="S1", node="N1", product="P1", capacity=10.0))
     state.add_consumer(Consumer(id="C1", node="N2", product="P1", capacity=8.0))
-    state.add_transport(TransportLink(id="T1", origin="N1", destination="N2", product="P1", capacity=10.0))
-    state.add_technology(Technology(id="K1", node="N2", capacity=4.0, yield_coefficients={"P1": -1.0, "P2": 0.5}))
+    state.add_transport(TransportLink(id="T1", origin="N1", destination="N2", product="P1", capacity=10.0, cost=0.0))
+    state.add_technology(Technology(id="K1", node="N2", capacity=4.0, cost=0.0, yield_coefficients={"P1": -1.0, "P2": 0.5}))
     state.add_bid(Bid(id="B_SUP", owner_id="S1", owner_type="supplier", product_id="P1", price=2.0, quantity=10.0))
     state.add_bid(Bid(id="B_CON", owner_id="C1", owner_type="consumer", product_id="P1", price=9.0, quantity=8.0))
     return state

@@ -1,0 +1,120 @@
+{
+  "benchmark_id": "midterm1_manure_q3",
+  "objective_value": 1050.0,
+  "demand_revenue": 500.0,
+  "transport_cost": 150.0,
+  "supply_cost": -700.0,
+  "supply_contribution": 700.0,
+  "accepted_supply": {
+    "Dairy/EauClaire": 1000.0
+  },
+  "accepted_demands": {
+    "Menomonie": 500.0,
+    "BlackRiverFalls": 500.0
+  },
+  "transport_flows": {
+    "EauClaire_to_Menomonie": 500.0,
+    "EauClaire_to_BlackRiverFalls": 500.0
+  },
+  "route_net_values": {
+    "EauClaire_to_Menomonie": 0.1,
+    "EauClaire_to_BlackRiverFalls": 2.0
+  },
+  "balance_checks": {
+    "EauClaire": {
+      "supply": 1000.0,
+      "total_outgoing_flow": 1000.0,
+      "holds": true
+    },
+    "Menomonie": {
+      "incoming_flow": 500.0,
+      "accepted_demand": 500.0,
+      "holds": true
+    },
+    "BlackRiverFalls": {
+      "incoming_flow": 500.0,
+      "accepted_demand": 500.0,
+      "holds": true
+    }
+  },
+  "expected_semantic_metrics": {
+    "entity_counts": {
+      "products": 1,
+      "products_include_manure": true,
+      "source_supplier_entities": 1,
+      "manure_source_supplier_entities": 1,
+      "demand_consumer_entities": 2,
+      "manure_demand_consumer_entities": 2,
+      "transport_paths": 2,
+      "manure_transport_paths_from_source": 2,
+      "technologies": 0
+    },
+    "supplier_capacities": [1000.0],
+    "consumer_capacities": [500.0, 500.0],
+    "consumer_bid_prices": [-0.5, 1.5],
+    "supplier_bid_prices": [-0.7],
+    "transport_costs": [0.1, 0.2],
+    "transport_capacities": [1000.0, 1000.0],
+    "transport_links": [
+      {
+        "role": "Menomonie manure route",
+        "origin": "EauClaire",
+        "destination": "Menomonie",
+        "product": "Manure",
+        "capacity": 1000.0,
+        "cost": 0.1
+      },
+      {
+        "role": "Black River Falls manure route",
+        "origin": "EauClaire",
+        "destination": "BlackRiverFalls",
+        "product": "Manure",
+        "capacity": 1000.0,
+        "cost": 0.2
+      }
+    ],
+    "transport_product_semantics": ["Manure", "Manure"],
+    "negative_bid_expected": true,
+    "negative_supplier_bid_expected": true,
+    "supplier_removal_payment": 0.7,
+    "route_net_values": [0.1, 2.0],
+    "route_association": {
+      "manure_routes": [
+        {
+          "destination_role": "Menomonie",
+          "origin": "EauClaire",
+          "destination": "Menomonie",
+          "product": "Manure",
+          "consumer_bid": -0.5,
+          "transport_cost": 0.1,
+          "source_contribution": 0.7,
+          "expected_route_net_value": 0.1
+        },
+        {
+          "destination_role": "Black River Falls",
+          "origin": "EauClaire",
+          "destination": "BlackRiverFalls",
+          "product": "Manure",
+          "consumer_bid": 1.5,
+          "transport_cost": 0.2,
+          "source_contribution": 0.7,
+          "expected_route_net_value": 2.0
+        }
+      ]
+    },
+    "solver_aggregates": {
+      "objective_value": 1050.0,
+      "demand_revenue": 500.0,
+      "transport_cost": 150.0,
+      "supply_cost": -700.0,
+      "supply_contribution": 700.0,
+      "total_accepted_supply": 1000.0,
+      "total_accepted_demand": 1000.0,
+      "total_transport_flow": 1000.0,
+      "active_transport_routes": 2,
+      "sorted_active_flow_values": [500.0, 500.0],
+      "sorted_accepted_demand_values": [500.0, 500.0]
+    }
+  },
+  "qualitative_answer": "The dairy farmer can get rid of all manure because the 0.7 dollar per ton payment makes both routes profitable after consumer bids and transportation costs are included."
+}

@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "midterm1_manure_q2",
+  "prompts": [
+    {
+      "id": "canonical",
+      "label": "Canonical DNR policy wording",
+      "expected_solver_ready": true,
+      "text": "A dairy farm in Eau Claire produces 1000 tons of waste manure and wants to get rid of it. The dairy supplier bid is 0 dollars per ton: the farmer is willing to give the manure away for free. A corn farmer in Menomonie is willing to pay 0.5 dollars per ton for manure and can take at most 500 tons, but a DNR policy adds a 1.0 dollar per ton remediation charge for Menomonie, so Menomonie's effective consumer bid is -0.5 dollars per ton. A soybean farmer in Black River Falls is willing to pay 1.5 dollars per ton and can take at most 500 tons. Transportation costs 0.1 dollars per ton from Eau Claire to Menomonie and 0.2 dollars per ton from Eau Claire to Black River Falls. Each transport route has capacity 1000 tons. The cooperative maximizes total profit. What is the optimal manure allocation and why is manure diverted away from Menomonie?"
+    },
+    {
+      "id": "paraphrased",
+      "label": "Paraphrased DNR policy wording",
+      "expected_solver_ready": true,
+      "text": "Formulate the DNR policy variant of the manure disposal network. The Eau Claire dairy has 1000 tons of manure available with a supplier bid of 0 dollars per ton. Menomonie can receive at most 500 tons, but after a 1.0 dollar per ton remediation charge its consumer bid is -0.5 dollars per ton. Black River Falls can receive at most 500 tons and has a consumer bid of 1.5 dollars per ton. Hauling from Eau Claire costs 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Each hauling route has capacity 1000 tons. Maximize cooperative profit."
+    },
+    {
+      "id": "ambiguous",
+      "label": "Ambiguous naming with DNR policy",
+      "expected_solver_ready": true,
+      "text": "A manure source near Eau Claire has 1000 tons available with a source supplier bid of 0 dollars per ton. The receiving farm near Menomonie faces a DNR charge that makes its effective consumer bid -0.5 dollars per ton and it can take 500 tons. The receiving farm near Black River Falls has a consumer bid of 1.5 dollars per ton and can take 500 tons. Shipping costs from Eau Claire are 0.1 dollars per ton to Menomonie and 0.2 dollars per ton to Black River Falls. Each shipping route has capacity 1000 tons. Find the profit-maximizing allocation and explain the diversion away from Menomonie."
+    }
+  ]
+}

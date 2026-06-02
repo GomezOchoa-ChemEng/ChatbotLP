@@ -72,6 +72,20 @@ MIDTERM_Q2_REASONING_PROMPTS: List[Dict[str, Any]] = [
         ),
         "required_terms": ["Menomonie", "negative"],
     },
+    {
+        "id": "black_river_falls_use",
+        "label": "Black River Falls route economics",
+        "prompt": "Explain economically why the Black River Falls route is used in Question 2.",
+        "required_terms": ["Black River Falls", "positive"],
+    },
+    {
+        "id": "negative_consumer_bid",
+        "label": "Negative consumer bid meaning",
+        "prompt": (
+            "Explain the economic meaning of Menomonie's negative consumer bid under the DNR remediation policy."
+        ),
+        "required_terms": ["Menomonie", "negative", "remediation"],
+    },
 ]
 
 MIDTERM_Q3_REASONING_PROMPTS: List[Dict[str, Any]] = [
@@ -88,10 +102,22 @@ MIDTERM_Q3_REASONING_PROMPTS: List[Dict[str, Any]] = [
         "required_terms": ["0.7", "payment"],
     },
     {
-        "id": "route_economics",
-        "label": "Route economics",
-        "prompt": "Explain the route economics for Menomonie and Black River Falls.",
-        "required_terms": ["Menomonie", "Black River Falls"],
+        "id": "negative_supplier_bid_economics",
+        "label": "Negative supplier bid economics",
+        "prompt": "Explain how the -0.7 $/ton supplier bid changes the route economics.",
+        "required_terms": ["-0.7", "supplier", "route"],
+    },
+    {
+        "id": "both_routes_used",
+        "label": "Both routes used",
+        "prompt": "Explain why both the Menomonie and Black River Falls routes are used in Question 3.",
+        "required_terms": ["Menomonie", "Black River Falls", "positive"],
+    },
+    {
+        "id": "q2_q3_objective_comparison",
+        "label": "Q2 versus Q3 objective",
+        "prompt": "Explain how and why the cooperative objective changes from Question 2 to Question 3.",
+        "required_terms": ["650", "1050", "400"],
     },
     {
         "id": "node_balances",
@@ -155,8 +181,8 @@ FIELD_MAP = {
     "products": (),
     "suppliers": ("node", "product", "capacity"),
     "consumers": ("node", "product", "capacity"),
-    "transport_links": ("origin", "destination", "product", "cost"),
-    "technologies": ("node", "capacity", "yield_coefficients"),
+    "transport_links": ("origin", "destination", "product", "capacity", "cost"),
+    "technologies": ("node", "capacity", "cost", "yield_coefficients"),
     "bids": ("owner_id", "owner_type", "product_id", "price", "quantity"),
 }
 
@@ -264,7 +290,7 @@ def build_midterm_manure_expected_plan(prompt_id: str = "canonical") -> Dict[str
                 "origin": "EauClaire",
                 "destination": "Menomonie",
                 "product": "Manure",
-                "capacity": None,
+                "capacity": 1000.0,
                 "cost": 0.1,
             },
             {
@@ -272,7 +298,7 @@ def build_midterm_manure_expected_plan(prompt_id: str = "canonical") -> Dict[str
                 "origin": "EauClaire",
                 "destination": "BlackRiverFalls",
                 "product": "Manure",
-                "capacity": None,
+                "capacity": 1000.0,
                 "cost": 0.2,
             },
         ],
@@ -317,6 +343,8 @@ def build_midterm_manure_q2_expected_plan(prompt_id: str = "canonical") -> Dict[
     for bid in plan["bids"]:
         if bid["owner_id"] == "Menomonie":
             bid["price"] = -0.5
+    for link in plan["transport_links"]:
+        link["capacity"] = 1000.0
     plan["missing_information"] = []
     plan["ambiguities"] = []
     return plan
@@ -745,6 +773,10 @@ def evaluate_midterm_prompt_case(
         solve_result=solve_result,
         reference_solution=reference_solution,
     )
+    active_flow_objective_diagnostics = build_active_flow_objective_diagnostics(
+        state=actual_state,
+        solve_result=solve_result,
+    )
 
     reasoning_results: List[Dict[str, Any]] = []
     if (
@@ -787,6 +819,7 @@ def evaluate_midterm_prompt_case(
         "solution_checks": solution_checks,
         "primary_metrics": primary_metrics,
         "removal_incentive_diagnostics": removal_incentive_diagnostics,
+        "active_flow_objective_diagnostics": active_flow_objective_diagnostics,
         "state_comparison": state_comparison,
         "reasoning_results": reasoning_results,
         "explanation_generated": explanation_generated,
@@ -1061,6 +1094,32 @@ def evaluate_primary_semantic_metrics(
         semantic_plan=semantic_plan,
         prose_input=prose_input,
     )
+    # Benchmark scoring is observational: validation may annotate a state with
+    # missing paths, so run it on a copy rather than mutating interpreted data.
+    validation = validate_state(_copy_problem_state(state))
+    formulation_rows.append(
+        _formulation_metric_row(
+            "validated_solver_ready_formulation",
+            True,
+            {
+                "solver_ready": validation["solver_ready"],
+                "missing_parameters": validation["missing_parameters"],
+                "invalid_references": validation["invalid_references"],
+                "incomplete_technologies": validation["incomplete_technologies"],
+            },
+            bool(validation["solver_ready"]),
+            "all required numerical parameters and references must be present before formulation recovery is complete",
+        )
+    )
+    solve_correctness_rows.append(
+        _solution_metric_row(
+            "state_solver_ready",
+            True,
+            validation["solver_ready"],
+            bool(validation["solver_ready"]),
+            details=validation["missing_parameters"] + validation["invalid_references"],
+        )
+    )
 
     semantic_structure_pass = all(
         bool(row["pass"])
@@ -1092,6 +1151,7 @@ def evaluate_primary_semantic_metrics(
         formulation_completeness_pass=formulation_completeness_pass,
         solve_correctness_pass=solve_correctness_pass,
         reasoning_ready_pass=reasoning_ready_pass,
+        solver_ready=bool(validation["solver_ready"]),
         route_association_rows=route_association_rows,
         transport_attribute_rows=transport_attribute_rows,
     )
@@ -1164,6 +1224,7 @@ def build_supplier_removal_incentive_diagnostics(
         float(bid.price)
         for bid in state.bids
         if bid.owner_type == "supplier"
+        and bid.price is not None
     ]
     actual_payments = sorted(abs(price) for price in supplier_bid_prices if price < 0)
     aggregates = _solver_aggregates(state, solve_result)
@@ -1253,8 +1314,8 @@ def extract_midterm_solution_components(
 
     accepted_supply: Dict[str, float] = {}
     accepted_demands: Dict[str, float] = {}
-    demand_revenue = 0.0
-    supply_cost = 0.0
+    demand_revenue: Optional[float] = 0.0
+    supply_cost: Optional[float] = 0.0
     raw_component_rows: List[Dict[str, Any]] = []
 
     for bid_id, quantity in q_values.items():
@@ -1265,7 +1326,10 @@ def extract_midterm_solution_components(
             supplier = suppliers_by_id.get(bid.owner_id)
             label = _supplier_reference_key(supplier, bid.owner_id, bid.product_id, state=state)
             accepted_supply[label] = accepted_supply.get(label, 0.0) + quantity
-            supply_cost += float(bid.price) * quantity
+            if bid.price is None:
+                supply_cost = None
+            elif supply_cost is not None:
+                supply_cost += float(bid.price) * quantity
             raw_component_rows.append(
                 {
                     "component": "accepted_supply",
@@ -1281,7 +1345,10 @@ def extract_midterm_solution_components(
             consumer = consumers_by_id.get(bid.owner_id)
             label = _consumer_reference_key(consumer, bid.owner_id, bid.product_id, state=state)
             accepted_demands[label] = accepted_demands.get(label, 0.0) + quantity
-            demand_revenue += float(bid.price) * quantity
+            if bid.price is None:
+                demand_revenue = None
+            elif demand_revenue is not None:
+                demand_revenue += float(bid.price) * quantity
             raw_component_rows.append(
                 {
                     "component": "accepted_demands",
@@ -1295,7 +1362,7 @@ def extract_midterm_solution_components(
             )
 
     transport_flows: Dict[str, float] = {}
-    transport_cost = 0.0
+    transport_cost: Optional[float] = 0.0
     for activity in _transport_activity_rows(state, f_values):
         origin = activity["origin"]
         destination = activity["destination"]
@@ -1303,7 +1370,10 @@ def extract_midterm_solution_components(
         quantity = activity["flow"]
         route_key = _route_reference_key(origin, destination, product_id, state=state)
         transport_flows[route_key] = transport_flows.get(route_key, 0.0) + quantity
-        transport_cost += activity["cost"] * quantity
+        if activity["cost"] is None:
+            transport_cost = None
+        elif transport_cost is not None:
+            transport_cost += activity["cost"] * quantity
         raw_component_rows.append(
             {
                 "component": "transport_flows",
@@ -1319,17 +1389,20 @@ def extract_midterm_solution_components(
 
     technology_activity: Dict[str, float] = {}
     technology_outputs: Dict[str, float] = {}
-    technology_cost = 0.0
+    technology_cost: Optional[float] = 0.0
     for raw_key, activity in x_values.items():
         technology = technologies_by_id.get(str(raw_key))
         if technology is None:
             technology = _find_technology_for_key(state, str(raw_key))
-        label = _technology_reference_key(technology, str(raw_key))
+        label = _technology_reference_key(technology, str(raw_key), state=state)
         technology_activity[label] = technology_activity.get(label, 0.0) + activity
         if technology is not None:
-            technology_cost += float(getattr(technology, "cost", 0.0) or 0.0) * activity
+            if technology.cost is None:
+                technology_cost = None
+            elif technology_cost is not None:
+                technology_cost += float(technology.cost) * activity
             for product_id, coefficient in technology.yield_coefficients.items():
-                if coefficient > 0:
+                if coefficient is not None and coefficient > 0:
                     product_key = _canonical_product_key_for_state(state, product_id)
                     technology_outputs[product_key] = technology_outputs.get(product_key, 0.0) + (
                         float(coefficient) * activity
@@ -1366,10 +1439,56 @@ def extract_midterm_solution_components(
         "transport_cost": transport_cost,
         "supply_cost": supply_cost,
         "technology_cost": technology_cost,
-        "supply_contribution": -supply_cost,
+        "supply_contribution": -supply_cost if supply_cost is not None else None,
         "balance_checks": balance_checks,
         "raw_component_rows": raw_component_rows,
     }
+
+
+def build_active_flow_objective_diagnostics(
+    state: Optional[ProblemState],
+    solve_result: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Describe the recovered objective coefficients for every active transport flow."""
+
+    if not isinstance(state, ProblemState) or not solve_result.get("success", False):
+        return []
+
+    solution = solve_result.get("solution", {}) if isinstance(solve_result, dict) else {}
+    rows: List[Dict[str, Any]] = []
+    for activity in _transport_activity_rows(state, _solution_block(solution, "f")):
+        flow = float(activity["flow"])
+        if abs(flow) <= TOLERANCE:
+            continue
+        origin = activity["origin"]
+        destination = activity["destination"]
+        product = activity["product"]
+        transport_cost = _float_or_none(activity["cost"])
+        source_bid = _supplier_price_at(state, origin, product)
+        demand_bid = _consumer_price_at(state, destination, product)
+        route_net_value = (
+            demand_bid - source_bid - transport_cost
+            if source_bid is not None and demand_bid is not None and transport_cost is not None
+            else None
+        )
+        rows.append(
+            {
+                "link_id": activity["link_id"],
+                "raw_flow_key": activity["raw_key"],
+                "origin": origin,
+                "resolved_origin_role": _canonical_node_key_for_state(state, origin),
+                "destination": destination,
+                "resolved_destination_role": _canonical_node_key_for_state(state, destination),
+                "product": _canonical_product_key_for_state(state, product),
+                "flow": flow,
+                "transport_cost_coefficient": transport_cost,
+                "transport_cost_contribution": transport_cost * flow if transport_cost is not None else None,
+                "associated_source_bid": source_bid,
+                "associated_demand_bid": demand_bid,
+                "computed_route_net_value": route_net_value,
+            }
+        )
+    return rows
 
 
 def run_midterm_reasoning_prompt_battery(
@@ -1460,6 +1579,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
     solve_correctness_rows = []
     reasoning_readiness_rows = []
     removal_rows = []
+    active_flow_rows = []
 
     for result in case_results:
         checks = result["solution_checks"]
@@ -1614,6 +1734,8 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
             reasoning_readiness_rows.append({"prompt_id": result["prompt_id"], **row})
         for row in result.get("removal_incentive_diagnostics", []):
             removal_rows.append({"prompt_id": result["prompt_id"], **row})
+        for row in result.get("active_flow_objective_diagnostics", []):
+            active_flow_rows.append({"prompt_id": result["prompt_id"], **row})
 
     return {
         "case_summary": pd.DataFrame(case_summary_rows),
@@ -1632,6 +1754,7 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         "solve_correctness_metrics": pd.DataFrame(solve_correctness_rows),
         "reasoning_readiness_metrics": pd.DataFrame(reasoning_readiness_rows),
         "removal_incentive_diagnostics": pd.DataFrame(removal_rows),
+        "active_flow_objective_diagnostics": pd.DataFrame(active_flow_rows),
         "alias_resolution_diagnostics": pd.DataFrame(diagnostic_rows),
         "reasoning_prompt_success": pd.DataFrame(reasoning_rows),
         "interpretation_metadata": pd.DataFrame(metadata_rows),
@@ -1901,7 +2024,7 @@ def _parameter_multiset_metric_rows(
     consumer_bid_prices = [bid.price for bid in state.bids if bid.owner_type == "consumer"]
     supplier_capacities = [supplier.capacity for supplier in state.suppliers]
     consumer_capacities = [consumer.capacity for consumer in state.consumers]
-    transport_costs = [float(getattr(link, "cost", 0.0) or 0.0) for link in state.transport_links]
+    transport_costs = [_float_or_none(link.cost) for link in state.transport_links]
     finite_transport_capacities = [
         float(link.capacity)
         for link in state.transport_links
@@ -1914,6 +2037,7 @@ def _parameter_multiset_metric_rows(
             "absent/unbounded with successful solve"
             f", or {bounded_expected_capacities}"
         )
+        transport_capacity_details = "Transport capacities may be absent when routes remain nonbinding."
         transport_capacity_pass = (
             _multiset_matches(finite_transport_capacities, bounded_expected_capacities, tolerance)
             or (not finite_transport_capacities and solve_success)
@@ -1921,6 +2045,7 @@ def _parameter_multiset_metric_rows(
     elif isinstance(expected_transport_capacities, (list, tuple)):
         bounded_expected_capacities = [float(value) for value in expected_transport_capacities]
         transport_capacity_expected_label = bounded_expected_capacities
+        transport_capacity_details = "Transport capacities are required by the reference formulation."
         transport_capacity_pass = _multiset_matches(
             finite_transport_capacities,
             bounded_expected_capacities,
@@ -1929,6 +2054,7 @@ def _parameter_multiset_metric_rows(
     else:
         bounded_expected_capacities = []
         transport_capacity_expected_label = expected_transport_capacities
+        transport_capacity_details = "Transport capacities must match the reference formulation."
         transport_capacity_pass = _multiset_matches(
             finite_transport_capacities,
             bounded_expected_capacities,
@@ -1971,7 +2097,7 @@ def _parameter_multiset_metric_rows(
             transport_capacity_expected_label,
             finite_transport_capacities or "absent/unbounded",
             transport_capacity_pass,
-            details="Transport capacities may be absent when routes remain nonbinding.",
+            details=transport_capacity_details,
         ),
     ]
 
@@ -1984,9 +2110,9 @@ def _topology_metric_rows(
     expected_counts = metrics.get("entity_counts", {})
     negative_bid_expected = bool(metrics.get("negative_bid_expected", False))
     negative_supplier_bid_expected = bool(metrics.get("negative_supplier_bid_expected", False))
-    has_negative_bid = any(bid.price < 0 for bid in state.bids)
+    has_negative_bid = any(bid.price is not None and bid.price < 0 for bid in state.bids)
     has_negative_supplier_bid = any(
-        bid.price < 0
+        bid.price is not None and bid.price < 0
         for bid in state.bids
         if bid.owner_type == "supplier"
     )
@@ -2087,8 +2213,14 @@ def _topology_metric_rows(
         _metric_row(
             "negative_bid_detection" if negative_bid_expected else "no_negative_bids",
             True,
-            has_negative_bid if negative_bid_expected else all(bid.price >= 0 for bid in state.bids),
-            has_negative_bid if negative_bid_expected else all(bid.price >= 0 for bid in state.bids),
+            has_negative_bid if negative_bid_expected else all(
+                bid.price is not None and bid.price >= 0
+                for bid in state.bids
+            ),
+            has_negative_bid if negative_bid_expected else all(
+                bid.price is not None and bid.price >= 0
+                for bid in state.bids
+            ),
             details=[bid.price for bid in state.bids],
         ),
         _metric_row(
@@ -2199,7 +2331,7 @@ def _route_association_metric_rows(
         consumer_bid = _consumer_price_at(state, link.destination, link.product) if link is not None else None
         source_price = _supplier_price_at(state, link.origin, link.product) if link is not None else None
         source_contribution = -source_price if source_price is not None else None
-        transport_cost = float(getattr(link, "cost", 0.0) or 0.0) if link is not None else None
+        transport_cost = _float_or_none(link.cost) if link is not None else None
         computed_net_value = (
             float(source_contribution) + float(consumer_bid) - float(transport_cost)
             if source_contribution is not None and consumer_bid is not None and transport_cost is not None
@@ -2296,18 +2428,18 @@ def _compost_pathway_association_row(
         else None
     )
     input_transport_cost = (
-        float(getattr(input_link, "cost", 0.0) or 0.0)
+        _float_or_none(input_link.cost)
         if input_link is not None
         else None
     )
     compost_transport_cost = (
-        float(getattr(output_link, "cost", 0.0) or 0.0)
+        _float_or_none(output_link.cost)
         if output_link is not None
         else None
     )
     yield_value = _technology_yield_for_product(state, technology, output_product)
     input_coefficient = _technology_yield_for_product(state, technology, input_product)
-    technology_cost = float(getattr(technology, "cost", 0.0) or 0.0) if technology is not None else None
+    technology_cost = _float_or_none(technology.cost) if technology is not None else None
     expected_net_value = pathway.get("expected_pathway_net_value")
 
     computed_net_value = None
@@ -2405,6 +2537,7 @@ def _transport_link_attribute_metric_rows(
             _transport_link_attribute_row(
                 expected_spec=spec,
                 actual_link=link,
+                state=state,
                 expected_costs=expected_costs,
                 tolerance=tolerance,
                 row_kind="expected_route",
@@ -2421,8 +2554,8 @@ def _transport_link_attribute_metric_rows(
     }
     for link in state.transport_links:
         actual_key = (
-            _canonical_node_key(link.origin),
-            _canonical_node_key(link.destination),
+            _canonical_node_key_for_state(state, link.origin),
+            _canonical_node_key_for_state(state, link.destination),
             _canonical_product_key_for_state(state, link.product),
         )
         if link.id in matched_actual_ids or actual_key in expected_keys:
@@ -2431,6 +2564,7 @@ def _transport_link_attribute_metric_rows(
             _transport_link_attribute_row(
                 expected_spec=None,
                 actual_link=link,
+                state=state,
                 expected_costs=expected_costs,
                 tolerance=tolerance,
                 row_kind="extra_interpreted_route",
@@ -2442,6 +2576,7 @@ def _transport_link_attribute_metric_rows(
 def _transport_link_attribute_row(
     expected_spec: Optional[Dict[str, Any]],
     actual_link: Any,
+    state: ProblemState,
     expected_costs: Sequence[float],
     tolerance: float,
     row_kind: str,
@@ -2449,7 +2584,7 @@ def _transport_link_attribute_row(
     label = (
         _transport_expectation_label(expected_spec)
         if expected_spec is not None
-        else _transport_link_label(actual_link)
+        else _transport_link_label(actual_link, state=state)
     )
     expected_origin = expected_spec.get("origin") if expected_spec is not None else None
     expected_destination = expected_spec.get("destination") if expected_spec is not None else None
@@ -2462,7 +2597,7 @@ def _transport_link_attribute_row(
     product = getattr(actual_link, "product", None)
     capacity = getattr(actual_link, "capacity", None)
     cost = (
-        float(getattr(actual_link, "cost", 0.0) or 0.0)
+        _float_or_none(actual_link.cost)
         if actual_link is not None
         else None
     )
@@ -2477,9 +2612,9 @@ def _transport_link_attribute_row(
     route_matches = (
         actual_link is not None
         and expected_spec is not None
-        and _canonical_node_key(origin) == _canonical_node_key(expected_origin)
-        and _canonical_node_key(destination) == _canonical_node_key(expected_destination)
-        and _canonical_product_key(product) == _canonical_product_key(expected_product)
+        and _canonical_node_key_for_state(state, origin) == _canonical_node_key(expected_origin)
+        and _canonical_node_key_for_state(state, destination) == _canonical_node_key(expected_destination)
+        and _canonical_product_key_for_state(state, product) == _canonical_product_key(expected_product)
     )
     capacity_matches = _optional_float_matches(capacity, expected_capacity, tolerance)
     cost_matches = _optional_float_matches(cost, expected_cost, tolerance)
@@ -2676,7 +2811,7 @@ def _transport_link_formulation_rows(
             )
         )
         expected_cost = spec.get("cost")
-        actual_cost = float(getattr(link, "cost", 0.0) or 0.0) if link is not None else None
+        actual_cost = _float_or_none(link.cost) if link is not None else None
         rows.append(
             _formulation_metric_row(
                 f"transport_cost:{route_label}",
@@ -2837,6 +2972,7 @@ def _classify_primary_failure(
     formulation_completeness_pass: bool,
     solve_correctness_pass: bool,
     reasoning_ready_pass: bool,
+    solver_ready: bool,
     route_association_rows: Sequence[Dict[str, Any]],
     transport_attribute_rows: Sequence[Dict[str, Any]],
 ) -> str:
@@ -2846,6 +2982,8 @@ def _classify_primary_failure(
         return "route_cost_binding_error"
     if any(bool(row.get("association_error")) for row in route_association_rows):
         return "route_cost_binding_error"
+    if not solver_ready:
+        return "incomplete_formulation_solver_not_ready"
     if not formulation_completeness_pass and solve_correctness_pass:
         return "incomplete_formulation_but_solution_equivalent"
     if not formulation_completeness_pass and not solve_correctness_pass:
@@ -2970,8 +3108,8 @@ def _find_transport_link_by_semantic_route(
     expected_product = _canonical_product_key(product)
     for link in state.transport_links:
         if (
-            _canonical_node_key(link.origin) == expected_origin
-            and _canonical_node_key(link.destination) == expected_destination
+            _canonical_node_key_for_state(state, link.origin) == expected_origin
+            and _canonical_node_key_for_state(state, link.destination) == expected_destination
             and _canonical_product_key_for_state(state, link.product) == expected_product
         ):
             return link
@@ -3000,9 +3138,9 @@ def _find_semantic_plan_transport_link(
 
 
 def _find_technology_by_semantic_node(state: ProblemState, node: Any) -> Any:
-    expected_node = _canonical_node_key(node)
+    expected_node = _canonical_node_key_for_state(state, node)
     for technology in state.technologies:
-        if _canonical_node_key(technology.node) == expected_node:
+        if _canonical_node_key_for_state(state, technology.node) == expected_node:
             return technology
     return None
 
@@ -3016,7 +3154,10 @@ def _technology_yield_for_product(
         return None
     expected_product = _canonical_product_key(product)
     for product_id, coefficient in technology.yield_coefficients.items():
-        if _canonical_product_key_for_state(state, product_id) == expected_product:
+        if (
+            coefficient is not None
+            and _canonical_product_key_for_state(state, product_id) == expected_product
+        ):
             return float(coefficient)
     return None
 
@@ -3029,13 +3170,24 @@ def _transport_expectation_label(spec: Dict[str, Any]) -> str:
     )
 
 
-def _transport_link_label(link: Any) -> str:
+def _transport_link_label(link: Any, state: Optional[ProblemState] = None) -> str:
     if link is None:
         return "missing"
+    canonicalize = (
+        lambda value: _canonical_node_key_for_state(state, value)
+        if state is not None
+        else _canonical_node_key(value)
+    )
+    product = getattr(link, "product", None)
+    product_key = (
+        _canonical_product_key_for_state(state, product)
+        if state is not None
+        else _canonical_product_key(product)
+    )
     return (
-        f"{_canonical_node_key(getattr(link, 'origin', None))}"
-        f"_to_{_canonical_node_key(getattr(link, 'destination', None))}"
-        f":{_canonical_product_key(getattr(link, 'product', None))}"
+        f"{canonicalize(getattr(link, 'origin', None))}"
+        f"_to_{canonicalize(getattr(link, 'destination', None))}"
+        f":{product_key}"
     )
 
 
@@ -3047,7 +3199,7 @@ def _transport_link_payload(link: Any) -> Optional[Dict[str, Any]]:
         "destination": link.destination,
         "product": link.product,
         "capacity": link.capacity,
-        "cost": float(getattr(link, "cost", 0.0) or 0.0),
+        "cost": _float_or_none(link.cost),
     }
 
 
@@ -3123,6 +3275,12 @@ def _optional_float_matches(actual: Any, expected: Any, tolerance: float) -> boo
         return False
 
 
+def _float_or_none(value: Any) -> Optional[float]:
+    """Preserve missingness while normalizing a present numeric value."""
+
+    return None if value is None else float(value)
+
+
 def _technology_yield_metric_rows(
     state: ProblemState,
     reference_solution: Dict[str, Any],
@@ -3152,17 +3310,17 @@ def _technology_yield_metric_rows(
     input_coefficients: List[float] = []
     output_coefficients: List[float] = []
     capacities: List[float] = []
-    costs: List[float] = []
+    costs: List[Optional[float]] = []
     for technology in state.technologies:
         if technology.capacity is not None:
             capacities.append(float(technology.capacity))
-        costs.append(float(getattr(technology, "cost", 0.0) or 0.0))
+        costs.append(_float_or_none(technology.cost))
         for product_id, coefficient in technology.yield_coefficients.items():
             product_key = _canonical_product_key_for_state(state, product_id)
-            if coefficient < 0:
+            if coefficient is not None and coefficient < 0:
                 input_products.append(product_key)
                 input_coefficients.append(float(coefficient))
-            elif coefficient > 0:
+            elif coefficient is not None and coefficient > 0:
                 output_products.append(product_key)
                 output_coefficients.append(float(coefficient))
 
@@ -3386,9 +3544,9 @@ def _route_net_values(state: ProblemState) -> List[float]:
     for link in state.transport_links:
         source_cost = _supplier_price_at(state, link.origin, link.product)
         consumer_price = _consumer_price_at(state, link.destination, link.product)
-        if source_cost is None or consumer_price is None:
+        if source_cost is None or consumer_price is None or link.cost is None:
             continue
-        values.append(float(consumer_price) - float(getattr(link, "cost", 0.0) or 0.0) - float(source_cost))
+        values.append(float(consumer_price) - float(link.cost) - float(source_cost))
     return sorted(values)
 
 
@@ -3398,12 +3556,12 @@ def _technology_pathway_net_values_per_input(state: ProblemState) -> List[float]
         input_products = [
             (product_id, float(coefficient))
             for product_id, coefficient in technology.yield_coefficients.items()
-            if coefficient < 0
+            if coefficient is not None and coefficient < 0
         ]
         output_products = [
             (product_id, float(coefficient))
             for product_id, coefficient in technology.yield_coefficients.items()
-            if coefficient > 0
+            if coefficient is not None and coefficient > 0
         ]
         for input_product, input_coefficient in input_products:
             input_amount = abs(input_coefficient)
@@ -3426,14 +3584,19 @@ def _technology_pathway_net_values_per_input(state: ProblemState) -> List[float]
                         continue
                     for output_link in output_links:
                         consumer_price = _consumer_price_at(state, output_link.destination, output_product)
-                        if consumer_price is None:
+                        if (
+                            consumer_price is None
+                            or input_link.cost is None
+                            or output_link.cost is None
+                            or technology.cost is None
+                        ):
                             continue
                         value = (
                             float(consumer_price) * output_coefficient
                             - float(source_cost) * input_amount
-                            - float(getattr(input_link, "cost", 0.0) or 0.0) * input_amount
-                            - float(getattr(output_link, "cost", 0.0) or 0.0) * output_coefficient
-                            - float(getattr(technology, "cost", 0.0) or 0.0)
+                            - float(input_link.cost) * input_amount
+                            - float(output_link.cost) * output_coefficient
+                            - float(technology.cost)
                         )
                         values.append(value)
     return sorted(values)
@@ -3468,8 +3631,8 @@ def _solver_aggregates(state: ProblemState, solve_result: Dict[str, Any]) -> Dic
     bids_by_id = {bid.id: bid for bid in state.bids}
     suppliers_by_id = {supplier.id: supplier for supplier in state.suppliers}
 
-    demand_revenue = 0.0
-    supply_cost = 0.0
+    demand_revenue: Optional[float] = 0.0
+    supply_cost: Optional[float] = 0.0
     total_accepted_supply = 0.0
     total_accepted_demand = 0.0
     total_manure_removed = 0.0
@@ -3480,14 +3643,20 @@ def _solver_aggregates(state: ProblemState, solve_result: Dict[str, Any]) -> Dic
             continue
         if bid.owner_type == "supplier":
             total_accepted_supply += quantity
-            supply_cost += float(bid.price) * quantity
+            if bid.price is None:
+                supply_cost = None
+            elif supply_cost is not None:
+                supply_cost += float(bid.price) * quantity
             supplier = suppliers_by_id.get(bid.owner_id)
             product_id = getattr(supplier, "product", bid.product_id)
             if _canonical_product_key_for_state(state, product_id) == CANONICAL_MANURE_PRODUCT_ID:
                 total_manure_removed += quantity
         elif bid.owner_type == "consumer":
             total_accepted_demand += quantity
-            demand_revenue += float(bid.price) * quantity
+            if bid.price is None:
+                demand_revenue = None
+            elif demand_revenue is not None:
+                demand_revenue += float(bid.price) * quantity
             if abs(quantity) > TOLERANCE:
                 accepted_demand_values.append(quantity)
 
@@ -3505,9 +3674,13 @@ def _solver_aggregates(state: ProblemState, solve_result: Dict[str, Any]) -> Dic
         if abs(activity["flow"]) > TOLERANCE
         and _canonical_product_key_for_state(state, activity["product"]) == CANONICAL_COMPOST_PRODUCT_ID
     ]
-    transport_cost = sum(activity["cost"] * activity["flow"] for activity in transport_activities)
+    transport_cost = (
+        sum(activity["cost"] * activity["flow"] for activity in transport_activities)
+        if all(activity["cost"] is not None for activity in transport_activities)
+        else None
+    )
     total_transport_flow = sum(activity["flow"] for activity in transport_activities)
-    technology_cost = 0.0
+    technology_cost: Optional[float] = 0.0
     technology_activity = 0.0
     total_compost_produced = 0.0
     technologies_by_id = {technology.id: technology for technology in state.technologies}
@@ -3516,10 +3689,14 @@ def _solver_aggregates(state: ProblemState, solve_result: Dict[str, Any]) -> Dic
         technology_activity += activity
         if technology is None:
             continue
-        technology_cost += float(getattr(technology, "cost", 0.0) or 0.0) * activity
+        if technology.cost is None:
+            technology_cost = None
+        elif technology_cost is not None:
+            technology_cost += float(technology.cost) * activity
         for product_id, coefficient in technology.yield_coefficients.items():
             if (
-                coefficient > 0
+                coefficient is not None
+                and coefficient > 0
                 and _canonical_product_key_for_state(state, product_id) == CANONICAL_COMPOST_PRODUCT_ID
             ):
                 total_compost_produced += float(coefficient) * activity
@@ -3529,7 +3706,7 @@ def _solver_aggregates(state: ProblemState, solve_result: Dict[str, Any]) -> Dic
         "demand_revenue": demand_revenue,
         "transport_cost": transport_cost,
         "supply_cost": supply_cost,
-        "supply_contribution": -supply_cost,
+        "supply_contribution": -supply_cost if supply_cost is not None else None,
         "technology_cost": technology_cost,
         "total_accepted_supply": total_accepted_supply,
         "total_accepted_demand": total_accepted_demand,
@@ -3601,7 +3778,8 @@ def _balance_residual_stats(
         if technology is None:
             continue
         for product_id, coefficient in technology.yield_coefficients.items():
-            add(technology.node, product_id, float(coefficient) * activity)
+            if coefficient is not None:
+                add(technology.node, product_id, float(coefficient) * activity)
 
     rendered_residuals = {
         f"{node}:{product}": value
@@ -3628,6 +3806,7 @@ def _supplier_price_at(state: ProblemState, node: str, product: str) -> Optional
         if bid.owner_type == "supplier"
         and bid.owner_id in supplier_ids
         and _same_product(bid.product_id, product)
+        and bid.price is not None
     ]
     return float(prices[0]) if prices else None
 
@@ -3644,6 +3823,7 @@ def _consumer_price_at(state: ProblemState, node: str, product: str) -> Optional
         if bid.owner_type == "consumer"
         and bid.owner_id in consumer_ids
         and _same_product(bid.product_id, product)
+        and bid.price is not None
     ]
     return float(prices[0]) if prices else None
 
@@ -3686,7 +3866,7 @@ def _transport_activity_rows(
             origin = link.origin
             destination = link.destination
             product = link.product
-            cost = float(getattr(link, "cost", 0.0) or 0.0)
+            cost = _float_or_none(link.cost)
             link_id = link.id
         else:
             origin = parsed_origin
@@ -3779,7 +3959,7 @@ def _primary_failure_count(primary_metrics: Dict[str, Any]) -> int:
 def _semantic_entity_map(collection: str, state: ProblemState) -> Dict[Tuple[Any, ...], Dict[str, Any]]:
     if collection == "nodes":
         return {
-            ("node", _canonical_node_key(node.id)): _dump_model(node)
+            ("node", _canonical_node_key_for_state(state, node.id)): _dump_model(node)
             for node in state.nodes
         }
     if collection == "products":
@@ -3791,7 +3971,7 @@ def _semantic_entity_map(collection: str, state: ProblemState) -> Dict[Tuple[Any
         return {
             (
                 "supplier",
-                _canonical_node_key(supplier.node),
+                _canonical_node_key_for_state(state, supplier.node),
                 _canonical_product_key_for_state(state, supplier.product),
             ): _dump_model(supplier)
             for supplier in state.suppliers
@@ -3800,7 +3980,7 @@ def _semantic_entity_map(collection: str, state: ProblemState) -> Dict[Tuple[Any
         return {
             (
                 "consumer",
-                _canonical_node_key(consumer.node),
+                _canonical_node_key_for_state(state, consumer.node),
                 _canonical_product_key_for_state(state, consumer.product),
             ): _dump_model(consumer)
             for consumer in state.consumers
@@ -3809,8 +3989,8 @@ def _semantic_entity_map(collection: str, state: ProblemState) -> Dict[Tuple[Any
         return {
             (
                 "transport",
-                _canonical_node_key(link.origin),
-                _canonical_node_key(link.destination),
+                _canonical_node_key_for_state(state, link.origin),
+                _canonical_node_key_for_state(state, link.destination),
                 _canonical_product_key_for_state(state, link.product),
             ): _dump_model(link)
             for link in state.transport_links
@@ -3819,16 +3999,16 @@ def _semantic_entity_map(collection: str, state: ProblemState) -> Dict[Tuple[Any
         return {
             (
                 "technology",
-                _canonical_node_key(technology.node),
+                _canonical_node_key_for_state(state, technology.node),
                 tuple(sorted(
                     _canonical_product_key_for_state(state, product_id)
                     for product_id, coefficient in technology.yield_coefficients.items()
-                    if coefficient < 0
+                    if coefficient is not None and coefficient < 0
                 )),
                 tuple(sorted(
                     _canonical_product_key_for_state(state, product_id)
                     for product_id, coefficient in technology.yield_coefficients.items()
-                    if coefficient > 0
+                    if coefficient is not None and coefficient > 0
                 )),
             ): _dump_model(technology)
             for technology in state.technologies
@@ -3855,8 +4035,8 @@ def _semantic_bid_map(state: ProblemState) -> Dict[Tuple[Any, ...], Dict[str, An
             technology = technologies_by_id.get(bid.owner_id)
             owner_key = (
                 "technology",
-                _canonical_node_key(getattr(technology, "node", bid.owner_id)),
-                _technology_reference_key(technology, bid.owner_id),
+                _canonical_node_key_for_state(state, getattr(technology, "node", bid.owner_id)),
+                _technology_reference_key(technology, bid.owner_id, state=state),
             )
         else:
             owner_key = bid.owner_id
@@ -4060,7 +4240,10 @@ def _supplier_reference_key(
         else _canonical_product_key(product_id)
     )
     product_ok = product_id is None or product_key == CANONICAL_MANURE_PRODUCT_ID
-    if product_ok and any(_canonical_node_key(candidate) == "EauClaire" for candidate in candidates):
+    if product_ok and any(
+        _canonical_node_key_for_state(state, candidate) == "EauClaire"
+        for candidate in candidates
+    ):
         return CANONICAL_SUPPLY_ID
     return str(owner_id)
 
@@ -4082,7 +4265,7 @@ def _consumer_reference_key(
     )
     if product_key == CANONICAL_COMPOST_PRODUCT_ID:
         for candidate in candidates:
-            key = _canonical_node_key(candidate)
+            key = _canonical_node_key_for_state(state, candidate)
             if key == CANONICAL_MADISON_COMPOST_DEMAND_ID:
                 return CANONICAL_MADISON_COMPOST_DEMAND_ID
         return str(owner_id)
@@ -4090,29 +4273,36 @@ def _consumer_reference_key(
     if not product_ok:
         return str(owner_id)
     for candidate in candidates:
-        key = _canonical_node_key(candidate)
+        key = _canonical_node_key_for_state(state, candidate)
         if key in {"Menomonie", "BlackRiverFalls"}:
             return key
     return str(owner_id)
 
 
-def _technology_reference_key(technology: Any, raw_id: str) -> str:
+def _technology_reference_key(
+    technology: Any,
+    raw_id: str,
+    state: Optional[ProblemState] = None,
+) -> str:
     candidates = [raw_id]
     if technology is not None:
         candidates.append(getattr(technology, "id", ""))
         candidates.append(getattr(technology, "node", ""))
-    if any(_canonical_node_key(candidate) == CANONICAL_COMPOSTER_ID for candidate in candidates):
+    if any(
+        _canonical_node_key_for_state(state, candidate) == CANONICAL_COMPOSTER_ID
+        for candidate in candidates
+    ):
         return CANONICAL_COMPOSTER_ID
     return str(raw_id)
 
 
 def _find_technology_for_key(state: ProblemState, raw_key: str) -> Any:
-    canonical_key = _canonical_node_key(raw_key)
+    canonical_key = _canonical_node_key_for_state(state, raw_key)
     normalized_key = _normalize_token(raw_key)
     for technology in state.technologies:
         if _normalize_token(technology.id) == normalized_key:
             return technology
-        if _canonical_node_key(technology.node) == canonical_key:
+        if _canonical_node_key_for_state(state, technology.node) == canonical_key:
             return technology
     return None
 
@@ -4123,8 +4313,8 @@ def _route_reference_key(
     product_id: Optional[str] = None,
     state: Optional[ProblemState] = None,
 ) -> str:
-    canonical_origin = _canonical_node_key(origin)
-    canonical_destination = _canonical_node_key(destination)
+    canonical_origin = _canonical_node_key_for_state(state, origin)
+    canonical_destination = _canonical_node_key_for_state(state, destination)
     route_key = f"{canonical_origin}_to_{canonical_destination}"
     if product_id is not None:
         product_key = (
@@ -4186,6 +4376,76 @@ def _canonical_node_key(value: Any) -> str:
     return aliases.get(text, str(value).replace(" ", ""))
 
 
+def _canonical_node_key_for_state(state: Optional[ProblemState], value: Any) -> str:
+    """Resolve node roles through IDs, technology topology, and node names."""
+
+    canonical_roles = {
+        "EauClaire",
+        "Menomonie",
+        "BlackRiverFalls",
+        CANONICAL_MADISON_COMPOST_DEMAND_ID,
+        CANONICAL_COMPOSTER_ID,
+    }
+    id_key = _canonical_node_key(value)
+    if id_key in canonical_roles:
+        return id_key
+    if state is not None:
+        if _is_processing_intermediate_node(state, value):
+            return CANONICAL_COMPOSTER_ID
+        for node in state.nodes:
+            if str(node.id) != str(value) or not node.name:
+                continue
+            name_key = _canonical_node_key(node.name)
+            if name_key in canonical_roles and _normalize_token(node.name) not in {
+                "source",
+                "technology",
+            }:
+                return name_key
+    return id_key
+
+
+def _is_processing_intermediate_node(state: ProblemState, node_id: Any) -> bool:
+    """Return whether a node is a source-to-demand transformation intermediate."""
+
+    raw_node_id = str(node_id)
+    for technology in state.technologies:
+        if str(technology.node) != raw_node_id:
+            continue
+        input_products = [
+            product_id
+            for product_id, coefficient in technology.yield_coefficients.items()
+            if coefficient is not None and float(coefficient) < 0
+        ]
+        output_products = [
+            product_id
+            for product_id, coefficient in technology.yield_coefficients.items()
+            if coefficient is not None and float(coefficient) > 0
+        ]
+        has_supplied_input = any(
+            link.destination == technology.node
+            and any(
+                _canonical_product_key_for_state(state, link.product)
+                == _canonical_product_key_for_state(state, input_product)
+                for input_product in input_products
+            )
+            and _supplier_price_at(state, link.origin, link.product) is not None
+            for link in state.transport_links
+        )
+        has_demanded_output = any(
+            link.origin == technology.node
+            and any(
+                _canonical_product_key_for_state(state, link.product)
+                == _canonical_product_key_for_state(state, output_product)
+                for output_product in output_products
+            )
+            and _consumer_price_at(state, link.destination, link.product) is not None
+            for link in state.transport_links
+        )
+        if input_products and output_products and has_supplied_input and has_demanded_output:
+            return True
+    return False
+
+
 def _canonical_product_key(value: Any) -> str:
     text = _normalize_token(value)
     aliases = {
@@ -4228,37 +4488,37 @@ def _find_transport_link_for_arc(
     destination: str,
     arc_key: str,
 ) -> Any:
-    canonical_origin = _canonical_node_key(origin)
-    canonical_destination = _canonical_node_key(destination)
+    canonical_origin = _canonical_node_key_for_state(state, origin)
+    canonical_destination = _canonical_node_key_for_state(state, destination)
     normalized_arc_key = _normalize_token(arc_key)
     for link in state.transport_links:
-        link_origin = _canonical_node_key(link.origin)
-        link_destination = _canonical_node_key(link.destination)
+        link_origin = _canonical_node_key_for_state(state, link.origin)
+        link_destination = _canonical_node_key_for_state(state, link.destination)
         if link_origin == canonical_origin and link_destination == canonical_destination:
             return link
         if _normalize_token(link.id) == normalized_arc_key:
             return link
     parsed_origin, parsed_destination = _parse_arc_key(arc_key)
-    canonical_parsed_origin = _canonical_node_key(parsed_origin)
-    canonical_parsed_destination = _canonical_node_key(parsed_destination)
+    canonical_parsed_origin = _canonical_node_key_for_state(state, parsed_origin)
+    canonical_parsed_destination = _canonical_node_key_for_state(state, parsed_destination)
     for link in state.transport_links:
         if (
-            _canonical_node_key(link.origin) == canonical_parsed_origin
-            and _canonical_node_key(link.destination) == canonical_parsed_destination
+            _canonical_node_key_for_state(state, link.origin) == canonical_parsed_origin
+            and _canonical_node_key_for_state(state, link.destination) == canonical_parsed_destination
         ):
             return link
     return None
 
 
-def _transport_cost_for_arc(state: ProblemState, origin: str, destination: str) -> float:
-    canonical_origin = _canonical_node_key(origin)
-    canonical_destination = _canonical_node_key(destination)
+def _transport_cost_for_arc(state: ProblemState, origin: str, destination: str) -> Optional[float]:
+    canonical_origin = _canonical_node_key_for_state(state, origin)
+    canonical_destination = _canonical_node_key_for_state(state, destination)
     for link in state.transport_links:
-        link_origin = _canonical_node_key(link.origin)
-        link_destination = _canonical_node_key(link.destination)
+        link_origin = _canonical_node_key_for_state(state, link.origin)
+        link_destination = _canonical_node_key_for_state(state, link.destination)
         if link_origin == canonical_origin and link_destination == canonical_destination:
-            return float(getattr(link, "cost", 0.0) or 0.0)
-    return 0.0
+            return _float_or_none(link.cost)
+    return None
 
 
 def _compute_midterm_balance_checks(
@@ -4310,7 +4570,7 @@ def _compute_generic_balance_checks(
     rows: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     def key(node: str, product: str) -> Tuple[str, str]:
-        return (_canonical_node_key(node), _canonical_product_key_for_state(state, product))
+        return (_canonical_node_key_for_state(state, node), _canonical_product_key_for_state(state, product))
 
     def row(node: str, product: str) -> Dict[str, Any]:
         node_key, product_key = key(node, product)
@@ -4352,7 +4612,8 @@ def _compute_generic_balance_checks(
         if technology is None:
             continue
         for product_id, coefficient in technology.yield_coefficients.items():
-            row(technology.node, product_id)["technology_net"] += float(coefficient) * activity
+            if coefficient is not None:
+                row(technology.node, product_id)["technology_net"] += float(coefficient) * activity
 
     rendered: Dict[str, Dict[str, Any]] = {}
     for (node_key, product_key), values in sorted(rows.items()):
@@ -4583,6 +4844,7 @@ __all__ = [
     "MIDTERM_Q3_REASONING_PROMPTS",
     "MIDTERM_Q4_REASONING_PROMPTS",
     "MidtermBenchmarkConfig",
+    "build_active_flow_objective_diagnostics",
     "build_supplier_removal_incentive_diagnostics",
     "build_midterm_manure_cases",
     "build_midterm_manure_q2_cases",
