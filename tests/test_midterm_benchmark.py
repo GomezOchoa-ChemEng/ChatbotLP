@@ -52,6 +52,21 @@ def test_reference_solution_has_expected_objective():
     assert files["reference_solution"]["objective_value"] == 850.0
 
 
+def test_q1_reference_uses_q4_style_route_attribute_records():
+    metrics = load_benchmark_files()["reference_solution"]["expected_semantic_metrics"]
+    links = metrics["transport_links"]
+
+    assert metrics["entity_counts"]["products_include_manure"] is True
+    assert metrics["supplier_bid_prices"] == [0.0]
+    assert metrics["consumer_bid_prices"] == [0.5, 1.5]
+    assert metrics["transport_capacities"] == [1000.0, 1000.0]
+    assert [(link["destination"], link["cost"], link["capacity"]) for link in links] == [
+        ("Menomonie", 0.1, 1000.0),
+        ("BlackRiverFalls", 0.2, 1000.0),
+    ]
+    assert metrics["route_net_values"] == [0.4, 1.3]
+
+
 def test_q2_benchmark_files_load_with_negative_bid_reference():
     files = load_benchmark_files(DEFAULT_Q2_BENCHMARK_DIR)
 
@@ -169,6 +184,36 @@ def test_q4_benchmark_files_load_with_compost_reference():
     assert metrics["solver_aggregates"]["technology_cost"] == 500.0
     assert len(metrics["transport_links"]) == 4
     assert metrics["route_association"]["compost_pathway"]["expected_pathway_net_value"] == 9.6
+
+
+@pytest.mark.parametrize(
+    ("benchmark_dir", "objective", "route_values", "pathway_values"),
+    [
+        (None, 850.0, [0.4, 1.3], []),
+        (DEFAULT_Q2_BENCHMARK_DIR, 650.0, [-0.6, 1.3], []),
+        (DEFAULT_Q3_BENCHMARK_DIR, 1050.0, [0.1, 2.0], []),
+        (DEFAULT_Q4_BENCHMARK_DIR, 5800.0, [0.1, 2.0], [9.6]),
+    ],
+)
+def test_q1_q4_reference_solutions_use_strict_route_records_and_expected_economics(
+    benchmark_dir,
+    objective,
+    route_values,
+    pathway_values,
+):
+    reference = load_benchmark_files(benchmark_dir)["reference_solution"]
+    metrics = reference["expected_semantic_metrics"]
+
+    assert reference["objective_value"] == objective
+    assert sorted(metrics["route_net_values"]) == sorted(route_values)
+    assert sorted(metrics.get("technology_pathway_net_values_per_input", [])) == sorted(pathway_values)
+    assert metrics["transport_links"]
+    for link in metrics["transport_links"]:
+        assert {"origin", "destination", "product", "cost", "capacity"} <= set(link)
+        assert link["cost"] is not None
+        assert link["capacity"] is not None
+    assert "route_association" in metrics
+    assert metrics["route_association"].get("manure_routes")
 
 
 def test_q4_paraphrased_prompt_explicitly_states_all_four_transport_capacities():
@@ -324,6 +369,49 @@ def test_no_real_api_key_is_stored_in_midterm_notebooks(notebook_path):
     assignments = re.findall(r'os\.environ\["GEMINI_API_KEY"\]\s*=\s*"([^"]*)"', source)
     assert assignments
     assert all(value == "" for value in assignments)
+
+
+@pytest.mark.parametrize(
+    "notebook_path",
+    [
+        Path("notebooks/MidtermManureQ1Benchmark.ipynb"),
+        Path("notebooks/MidtermManureQ2Benchmark.ipynb"),
+        Path("notebooks/MidtermManureQ3Benchmark.ipynb"),
+        Path("notebooks/MidtermManureQ4Benchmark.ipynb"),
+    ],
+)
+def test_midterm_notebooks_display_comparable_primary_and_diagnostic_tables(notebook_path):
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    source = "\n".join("".join(cell.get("source", [])) for cell in notebook["cells"])
+
+    required_tables = {
+        "interpretation_metadata",
+        "semantic_count_metrics",
+        "parameter_multiset_metrics",
+        "transport_link_attribute_metrics",
+        "route_economics_metrics",
+        "route_association_metrics",
+        "formulation_completeness_metrics",
+        "solve_correctness_metrics",
+        "reasoning_readiness_metrics",
+    }
+    required_primary_columns = {
+        "formulation_completeness_pass",
+        "solve_correctness_pass",
+        "reasoning_ready_pass",
+        "route_attribute_binding_pass",
+        "route_association_pass",
+        "semantic_structure_pass",
+        "technology_structure_pass",
+        "primary_success",
+        "failure_type",
+    }
+
+    assert "pd.DataFrame([report[\"metadata\"]])" in source
+    for table_name in required_tables:
+        assert table_name in source
+    for column_name in required_primary_columns:
+        assert column_name in source
 
 
 def _build_alias_state():
@@ -880,6 +968,47 @@ def _metric(metrics, group, name):
     return next(row for row in metrics[group] if row["metric"] == name)
 
 
+def _audit_state_and_solution(question):
+    if question == "q1":
+        return (
+            _build_id_independent_state(first_capacity=1000.0, second_capacity=1000.0),
+            _id_independent_solve_result(objective=850.0),
+            _primary_metrics_for,
+        )
+    if question == "q2":
+        state = _build_id_independent_state(
+            menomonie_price=-0.5,
+            first_capacity=1000.0,
+            second_capacity=1000.0,
+            problem_type="case_b",
+        )
+        solve_result = _id_independent_solve_result(
+            first_flow=0.0,
+            second_flow=500.0,
+            objective=650.0,
+            accepted_supply=500.0,
+            first_demand=0.0,
+            second_demand=500.0,
+        )
+        return state, solve_result, _primary_q2_metrics_for
+    if question == "q3":
+        state = _build_id_independent_state(
+            supplier_price=-0.7,
+            menomonie_price=-0.5,
+            first_capacity=1000.0,
+            second_capacity=1000.0,
+            problem_type="case_b",
+        )
+        solve_result = _id_independent_solve_result(
+            objective=1050.0,
+            accepted_supply=1000.0,
+        )
+        return state, solve_result, _primary_q3_metrics_for
+    if question == "q4":
+        return _build_q4_id_independent_state(), _q4_id_independent_solve_result(), _primary_q4_metrics_for
+    raise ValueError(f"Unknown benchmark question: {question}")
+
+
 def test_midterm_aliases_match_reference_solution_components():
     state = _build_alias_state()
     reference = load_benchmark_files()["reference_solution"]
@@ -940,7 +1069,31 @@ def test_primary_metrics_pass_with_id_artifacts(menomonie_node):
     assert metrics["balance_residual_pass"] is True
     assert metrics["primary_success"] is True
     assert _metric(metrics, "route_economics_metrics", "sorted_route_net_values")["pass"] is True
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Menomonie:Manure",
+    )["pass"] is True
     assert _metric(metrics, "solver_aggregate_metrics", "sorted_active_flow_values")["pass"] is True
+
+
+def test_q1_swapped_route_costs_fail_with_route_cost_binding_error():
+    state = _build_id_independent_state()
+    state.transport_links[0].cost = 0.2
+    state.transport_links[1].cost = 0.1
+
+    metrics = _primary_metrics_for(state, _id_independent_solve_result(objective=900.0))
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert metrics["route_attribute_binding_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_binding_error"
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Menomonie:Manure",
+    )["route_cost_binding_error"] is True
 
 
 @pytest.mark.parametrize(
@@ -1524,6 +1677,137 @@ def test_q4_exact_id_differences_do_not_cause_primary_failure():
     assert {link.id for link in state.transport_links} == {"A", "B", "C", "D"}
     assert metrics["formulation_completeness_pass"] is True
     assert metrics["primary_success"] is True
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_primary_success_uses_same_three_flag_logic(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+
+    metrics = metrics_func(state, solve_result)
+
+    assert metrics["primary_success"] is (
+        metrics["formulation_completeness_pass"]
+        and metrics["solve_correctness_pass"]
+        and metrics["reasoning_ready_pass"]
+    )
+    assert metrics["failure_type"] == "none"
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_alternate_ids_pass_when_semantics_are_correct(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+
+    metrics = metrics_func(state, solve_result)
+
+    assert metrics["formulation_completeness_pass"] is True
+    assert metrics["solve_correctness_pass"] is True
+    assert metrics["reasoning_ready_pass"] is True
+    assert metrics["primary_success"] is True
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_swapped_route_costs_fail_even_when_cost_multiset_matches(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+    state.transport_links[0].cost, state.transport_links[1].cost = (
+        state.transport_links[1].cost,
+        state.transport_links[0].cost,
+    )
+
+    metrics = metrics_func(state, solve_result)
+
+    assert _metric(metrics, "parameter_multiset_metrics", "transport_costs")["pass"] is True
+    assert metrics["route_attribute_binding_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    assert metrics["failure_type"] == "route_cost_binding_error"
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_missing_route_cost_fails_formulation_completeness(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+    state.transport_links[0].cost = None
+
+    metrics = metrics_func(state, solve_result)
+
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+    cost_row = _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Menomonie:Manure",
+    )
+    assert cost_row["cost"] is None
+    assert cost_row["pass"] is False
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_missing_route_capacity_fails_formulation_completeness(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+    state.transport_links[0].capacity = None
+
+    metrics = metrics_func(state, solve_result)
+
+    assert metrics["solve_correctness_pass"] is False
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["reasoning_ready_pass"] is False
+    assert metrics["primary_success"] is False
+    capacity_row = _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Menomonie:Manure",
+    )
+    assert capacity_row["capacity"] is None
+    assert capacity_row["pass"] is False
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_correct_objective_alone_does_not_imply_primary_success(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+    state.transport_links[0].capacity = None
+
+    metrics = metrics_func(state, solve_result)
+
+    assert _metric(metrics, "solve_correctness_metrics", "objective_match")["pass"] is True
+    assert metrics["formulation_completeness_pass"] is False
+    assert metrics["primary_success"] is False
+
+
+@pytest.mark.parametrize("question", ["q1", "q2", "q3", "q4"])
+def test_q1_q4_primary_metrics_do_not_mutate_problem_state_with_reference_values(question):
+    state, solve_result, metrics_func = _audit_state_and_solution(question)
+    state.transport_links[0].capacity = None
+    before = state.model_dump()
+
+    metrics = metrics_func(state, solve_result)
+
+    assert metrics["primary_success"] is False
+    assert state.model_dump() == before
+
+
+def test_explicit_zero_route_cost_passes_but_missing_zero_cost_fails_q4():
+    state = _build_q4_id_independent_state()
+    solve_result = _q4_id_independent_solve_result()
+
+    metrics = _primary_q4_metrics_for(state, solve_result)
+    assert _metric(
+        metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Composter:Manure",
+    )["cost"] == 0.0
+    assert metrics["primary_success"] is True
+
+    state.transport_links[2].cost = None
+    missing_metrics = _primary_q4_metrics_for(state, solve_result)
+
+    assert missing_metrics["formulation_completeness_pass"] is False
+    assert missing_metrics["primary_success"] is False
+    missing_cost_row = _metric(
+        missing_metrics,
+        "transport_link_attribute_metrics",
+        "transport_link_attributes:EauClaire_to_Composter:Manure",
+    )
+    assert missing_cost_row["expected_cost"] == 0.0
+    assert missing_cost_row["cost"] is None
 
 
 @pytest.mark.parametrize(
