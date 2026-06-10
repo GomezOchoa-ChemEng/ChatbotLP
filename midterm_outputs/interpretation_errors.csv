@@ -1,0 +1,3 @@
+prompt_id,structural_match,blocking_error_count,benign_extra_name_fields,benign_identifier_mismatches,blocking_error_categories,blocking_errors,missing_parameters,invalid_references
+canonical,True,0,12,12,,,,
+paraphrased,True,0,10,10,,,,

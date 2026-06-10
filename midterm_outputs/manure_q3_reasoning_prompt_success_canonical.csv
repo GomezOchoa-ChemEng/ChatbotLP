@@ -1,0 +1,10 @@
+case,prompt_id,prompt_label,success,required_terms,required_terms_present,intent,render_mode,response_source,fallback_triggered,fallback_reason,llm_exception_type,response_preview
+canonical,all_manure_with_payment,All manure with removal incentive,True,"0.7, all",True,explanation,,llm,False,,,"In the **DNR Manure Policy Case**, the dairy farmer is now able to clear their entire inventory of 1,000 units of manure because the system has found a feasible economic path where the farmer's willingness to pay for disposal covers both th"
+canonical,supplier_payment_role,Supplier payment role,True,"0.7, payment",True,explanation,,llm,False,,,"### Guided Explanation: The Role of the -$0.7/ton Bid
+
+**Intuition**
+In a typical market, a supplier asks for money in exchange for a product. However, in the context of waste management—like this DNR Manure Policy Case—the ""product"" (manur"
+canonical,route_economics,Route economics,True,"Menomonie, Black River Falls",True,explanation,,llm,False,,,"In the coordinated management framework of Sampat et al. (2019), the route economics for Menomonie and Black River Falls are determined by the interplay between **disposal fees** (negative bids) and **commodity values** (positive bids) acro"
+canonical,node_balances,Node balance verification,True,balance,True,validation,,llm,False,,,"To verify the node-product balances for the **DNR Manure Policy Case**, we evaluate the equilibrium condition where the sum of local production and inflows must equal the sum of local consumption and outflows at each node.
+
+In the Sampat et"

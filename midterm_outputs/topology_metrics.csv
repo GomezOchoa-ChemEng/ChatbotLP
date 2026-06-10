@@ -1,0 +1,13 @@
+prompt_id,metric,expected,actual,pass,details
+canonical,one_source_node,True,True,True,"[""eau_claire""]"
+canonical,distinct_sink_nodes,2,2,True,"[""black_river_falls"", ""menomonie""]"
+canonical,source_outgoing_to_two_sinks,True,True,True,"{""destinations"": [""black_river_falls"", ""menomonie""], ""source"": ""eau_claire""}"
+canonical,no_technologies,True,True,True,
+canonical,negative_bid_detection,True,True,True,"[0.0, -0.5, 1.5]"
+canonical,transport_product_semantics,"[""Manure"", ""Manure""]","[""Manure"", ""Manure""]",True,"[""manure"", ""manure""]"
+paraphrased,one_source_node,True,True,True,"[""Eau_Claire""]"
+paraphrased,distinct_sink_nodes,2,2,True,"[""Black_River_Falls"", ""Menomonie""]"
+paraphrased,source_outgoing_to_two_sinks,True,True,True,"{""destinations"": [""Black_River_Falls"", ""Menomonie""], ""source"": ""Eau_Claire""}"
+paraphrased,no_technologies,True,True,True,
+paraphrased,negative_bid_detection,True,True,True,"[0.0, -0.5, 1.5]"
+paraphrased,transport_product_semantics,"[""Manure"", ""Manure""]","[""Manure"", ""Manure""]",True,"[""Manure"", ""Manure""]"

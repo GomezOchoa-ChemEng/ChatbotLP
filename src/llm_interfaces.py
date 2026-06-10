@@ -7,7 +7,7 @@ provider (OpenAI, Anthropic, etc.), or hybrid approaches.
 The interfaces are designed to:
 - Match the signatures of existing rule-based implementations
 - Allow pluggable implementations without modifying the chatbot core
-- Support fallback to deterministic rule-based versions
+- Support explicit deterministic implementations for tests and offline demos
 - Facilitate testing and mocking
 
 Implementations should be stateless and deterministic for reproducibility

@@ -28,8 +28,8 @@ FIELD_MAP = {
     "products": ("name",),
     "suppliers": ("node", "product", "capacity"),
     "consumers": ("node", "product", "capacity"),
-    "transport_links": ("origin", "destination", "product", "capacity"),
-    "technologies": ("node", "capacity", "yield_coefficients"),
+    "transport_links": ("origin", "destination", "product", "capacity", "cost"),
+    "technologies": ("node", "capacity", "cost", "yield_coefficients"),
     "bids": ("owner_id", "owner_type", "product_id", "price", "quantity"),
 }
 
@@ -44,7 +44,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
             "prose": (
                 "There are two nodes, N1 and N2. Supplier S1 at N1 can supply up to 100 units "
                 "of product P1. Consumer C1 at N2 is willing to buy up to 50 units of P1 at price 20. "
-                "Supplier S1 offers P1 at price 10. A transport link T1 carries P1 from N1 to N2 with capacity 100."
+                "Supplier S1 offers P1 at price 10. A free transport link T1 carries P1 from N1 to N2 with capacity 100."
             ),
             "expected_state": _build_expected_state(
                 problem_title="Canonical Case A",
@@ -52,7 +52,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0, "cost": 0.0}],
                 bids=[
                     {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
                     {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},
@@ -65,7 +65,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
             "prose": (
                 "Think of a simple two-location market. At N1, supplier S1 can provide as many as 100 units of P1 "
                 "and asks 10 per unit. At N2, consumer C1 would take at most 50 units of that same product and would pay 20. "
-                "The commodity can move on link T1 from N1 to N2, with a shipping capacity of 100."
+                "The commodity can move at zero cost on link T1 from N1 to N2, with a shipping capacity of 100."
             ),
             "expected_state": _build_expected_state(
                 problem_title="Paraphrased Case A",
@@ -73,7 +73,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0}],
+                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 100.0, "cost": 0.0}],
                 bids=[
                     {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": 100.0},
                     {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},
@@ -93,7 +93,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": None}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P1", "capacity": None}],
-                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": None}],
+                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": None, "cost": None}],
                 bids=[],
             ),
         },
@@ -110,7 +110,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": 100.0}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P1", "capacity": 50.0}],
-                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": None}],
+                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": None, "cost": None}],
                 bids=[
                     {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 10.0, "quantity": None},
                     {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 20.0, "quantity": 50.0},
@@ -123,7 +123,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
             "prose": (
                 "At node N1, supplier S1 can provide up to 40 units of waste product P1 and is willing to pay 5 "
                 "per unit to have it accepted, so its bid price is -5. At node N2, consumer C1 can accept up to 40 units "
-                "of P1 at bid price 1. Transport link T1 moves P1 from N1 to N2 with capacity 40."
+                "of P1 at bid price 1. Free transport link T1 moves P1 from N1 to N2 with capacity 40."
             ),
             "expected_state": _build_expected_state(
                 problem_title="Negative-Bid Case B",
@@ -131,7 +131,7 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": 40.0}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P1", "capacity": 40.0}],
-                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 40.0}],
+                transport_links=[{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 40.0, "cost": 0.0}],
                 bids=[
                     {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": -5.0, "quantity": 40.0},
                     {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 1.0, "quantity": 40.0},
@@ -143,8 +143,8 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
             "label": "Transformation Case C",
             "prose": (
                 "Node N1 has supplier S1 that can provide up to 60 units of feedstock P1 at price 4. "
-                "At the same node, technology K1 can process up to 60 units and converts 1 unit of P1 into 0.8 units of P2. "
-                "Consumer C1 at node N2 will buy up to 40 units of P2 at price 15. Transport link T2 ships P2 from N1 to N2 with capacity 40."
+                "At the same node, zero-cost technology K1 can process up to 60 units and converts 1 unit of P1 into 0.8 units of P2. "
+                "Consumer C1 at node N2 will buy up to 40 units of P2 at price 15. Free transport link T2 ships P2 from N1 to N2 with capacity 40."
             ),
             "expected_state": _build_expected_state(
                 problem_title="Transformation Case C",
@@ -152,8 +152,8 @@ def build_benchmark_evaluation_cases() -> List[Dict[str, Any]]:
                 products=[{"id": "P1"}, {"id": "P2"}],
                 suppliers=[{"id": "S1", "node": "N1", "product": "P1", "capacity": 60.0}],
                 consumers=[{"id": "C1", "node": "N2", "product": "P2", "capacity": 40.0}],
-                transport_links=[{"id": "T2", "origin": "N1", "destination": "N2", "product": "P2", "capacity": 40.0}],
-                technologies=[{"id": "K1", "node": "N1", "capacity": 60.0, "yield_coefficients": {"P1": -1.0, "P2": 0.8}}],
+                transport_links=[{"id": "T2", "origin": "N1", "destination": "N2", "product": "P2", "capacity": 40.0, "cost": 0.0}],
+                technologies=[{"id": "K1", "node": "N1", "capacity": 60.0, "cost": 0.0, "yield_coefficients": {"P1": -1.0, "P2": 0.8}}],
                 bids=[
                     {"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 4.0, "quantity": 60.0},
                     {"id": "B2", "owner_id": "C1", "owner_type": "consumer", "product_id": "P2", "price": 15.0, "quantity": 40.0},

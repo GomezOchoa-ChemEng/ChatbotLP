@@ -99,7 +99,7 @@ def check_theorems(state: ProblemState) -> List[TheoremCheck]:
     )
 
     # Case B compatibility: presence of at least one negative bid price
-    negative_count = sum(1 for b in state.bids if b.price < 0)
+    negative_count = sum(1 for b in state.bids if b.price is not None and b.price < 0)
     checks.append(
         TheoremCheck(
             theorem_name="Case B compatibility (negative bidding)",
@@ -119,8 +119,8 @@ def check_theorems(state: ProblemState) -> List[TheoremCheck]:
     case_c_applies = False
     case_c_explanation = ""
     for tech in state.technologies:
-        pos = any(v > 0 for v in tech.yield_coefficients.values())
-        neg = any(v < 0 for v in tech.yield_coefficients.values())
+        pos = any(v is not None and v > 0 for v in tech.yield_coefficients.values())
+        neg = any(v is not None and v < 0 for v in tech.yield_coefficients.values())
         cap_ok = tech.capacity is not None and tech.capacity > 0
         if pos and neg and cap_ok:
             case_c_applies = True
@@ -158,7 +158,7 @@ def check_theorems(state: ProblemState) -> List[TheoremCheck]:
     else:
         theorem_1_missing.append("basic_supply_demand_structure")
 
-    if all(bid.price == bid.price for bid in state.bids):
+    if all(bid.price is not None and bid.price == bid.price for bid in state.bids):
         theorem_1_verified.append("finite_bid_data")
     else:
         theorem_1_missing.append("finite_bid_data")

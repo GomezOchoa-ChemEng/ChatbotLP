@@ -158,11 +158,7 @@ def parse_supply_chain_text(
 
         provider = LLMProviderRegistry.get_instance()
         parser_impl = provider.get_parser()
-        try:
-            return parser_impl.parse(text)
-        except Exception:
-            # Fallback to rule-based if LLM parser fails for any reason
-            pass
+        return parser_impl.parse(text)
 
     parser = RuleBasedParser()
     return parser.parse_entities(text)

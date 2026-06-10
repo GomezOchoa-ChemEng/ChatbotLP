@@ -28,7 +28,7 @@ def build_case_a_state(transport_capacity: float):
             "products": [{"id": "P1", "name": "Product 1"}],
             "suppliers": [{"id": "S1", "node": "N1", "product": "P1", "capacity": 10.0}],
             "consumers": [{"id": "C1", "node": "N2", "product": "P1", "capacity": 8.0}],
-            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": transport_capacity}],
+            "transport_links": [{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": transport_capacity, "cost": 0.0}],
             "bids": [
                 {"id": "B_SUP", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 2.0, "quantity": 10.0},
                 {"id": "B_CON", "owner_id": "C1", "owner_type": "consumer", "product_id": "P1", "price": 9.0, "quantity": 8.0},

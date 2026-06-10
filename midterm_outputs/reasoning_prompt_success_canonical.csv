@@ -1,0 +1,9 @@
+case,prompt_id,prompt_label,success,intent,render_mode,response_source,fallback_triggered,fallback_reason,llm_exception_type,response_preview
+canonical,primal_lp,Primal LP formulation,True,formal_math,markdown_latex,llm,False,,,"In the framework of Sampat et al. (2019), the coordinated management of waste resources like manure is modeled as a market-clearing problem. This approach treats the region as a single coordinated system where an ""invisible hand"" or a centr"
+canonical,economic_intuition,Economic intuition,True,explanation,,llm,False,,,"To explain the optimal allocation for this Dairy Manure system, we look at how the system moves waste from where it is generated to where it is most valued, while accounting for the friction of distance (transport costs).
+
+### Intuition: ""C"
+canonical,all_manure,All manure feasibility,True,explanation,,llm,False,,,"In the current state of the dairy manure allocation problem, the dairy farmer can indeed get rid of all their manure. This is because the system's total demand exactly matches the total supply, and the economic incentives are aligned to fac"
+canonical,node_balances,Node balance verification,True,validation,,llm,False,,,"To verify the node balances for this dairy manure allocation problem, we must ensure that for every node and every product, the total supply (from local production or inflows) equals the total demand (from local consumption or outflows). 
+
+"

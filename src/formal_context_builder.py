@@ -12,6 +12,7 @@ from .dual_generator import (
 )
 from .schema import FormalMathContext, ProblemState, TheoremCheck
 from .theorem_checker import get_theorem_check_map
+from .validator import validate_state
 from .domain.sampat2019 import (
     CANONICAL_NOTATION,
     DOMAIN_SOURCE,
@@ -289,20 +290,31 @@ def build_formal_math_context(
         theorem_checks = check_theorems(state)
 
     theorem_check = _resolve_theorem_check(theorem_checks, request_info["theorem_id"])
-    primal_representation = build_primal_representation(state)
-    formulation_scope = _infer_formulation_scope(user_message, primal_representation)
+    validation = validate_state(state)
+    primal_representation = (
+        build_primal_representation(state)
+        if validation["solver_ready"]
+        else None
+    )
+    formulation_scope = _infer_formulation_scope(user_message, primal_representation or {})
     dual_representation = (
-        build_dual_scaffold(primal_representation)
+        build_dual_scaffold(primal_representation or {})
         if (
+            primal_representation is not None
+            and (
             request_info["request_type"] == "dual"
             or "dual" in semantic_plan["math_topics"]
             or request_info["request_type"] == "theorem_proof"
+            )
         )
         else None
     )
-    concrete_expectations = _collect_concrete_expectations(primal_representation, dual_representation)
+    concrete_expectations = _collect_concrete_expectations(primal_representation or {}, dual_representation)
 
-    has_negative_bids = any(bid.price < 0 for bid in state.bids)
+    has_negative_bids = any(
+        bid.price is not None and bid.price < 0
+        for bid in state.bids
+    )
     benchmark_case = (
         state.benchmark.case_family
         if state.benchmark and state.benchmark.case_family
@@ -331,6 +343,11 @@ def build_formal_math_context(
     if section_metadata:
         source_notes.append(section_metadata["title"])
     source_notes.extend(infer_negative_bid_notes(state))
+    if not validation["solver_ready"]:
+        source_notes.append(
+            "Current formulation is incomplete: "
+            + "; ".join(validation["missing_parameters"] + validation["invalid_references"])
+        )
 
     supporting_equations = [
         "Primal objective: maximize accepted consumer value minus accepted supplier cost minus transport and technology costs.",
@@ -342,6 +359,8 @@ def build_formal_math_context(
 
     assumptions_verified = list(theorem_check.assumptions_verified) if theorem_check else []
     assumptions_missing = list(theorem_check.assumptions_missing) if theorem_check else []
+    assumptions_missing.extend(validation["missing_parameters"] + validation["invalid_references"])
+    assumptions_missing = list(dict.fromkeys(assumptions_missing))
     applicable = theorem_check.applies if theorem_check else None
 
     return FormalMathContext(
@@ -363,9 +382,9 @@ def build_formal_math_context(
         },
         primal_formulation=primal_representation,
         dual_formulation=dual_representation,
-        objective=primal_representation.get("objective"),
-        constraints=primal_representation.get("constraints", []),
-        variables=primal_representation.get("variables", []),
+        objective=(primal_representation or {}).get("objective"),
+        constraints=(primal_representation or {}).get("constraints", []),
+        variables=(primal_representation or {}).get("variables", []),
         dual_variables=(dual_representation or {}).get("dual_variables", []),
         profit_definitions=[
             {

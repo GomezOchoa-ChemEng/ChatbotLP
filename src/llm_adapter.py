@@ -9,7 +9,7 @@ Mock implementations return placeholder results and do not connect to any
 external service. They are designed to:
 - Allow testing the integration without external dependencies
 - Serve as templates for real LLM provider implementations
-- Enable graceful fallback if a provider is unavailable
+- Support explicit deterministic test or offline-fixture paths
 
 The design uses a registry pattern to allow runtime switching between
 rule-based and LLM-based implementations.
@@ -73,7 +73,7 @@ class MockIntentClassifier(IntentClassifier):
     In production, a real implementation would:
     - Send the text to an LLM API
     - Parse the response into one of the six valid intents
-    - Include confidence scores or fallback logic
+    - Include confidence scores and explicit live_llm_failure reporting
     """
 
     def classify(self, text: str) -> str:
@@ -613,7 +613,7 @@ def get_provider_diagnostics() -> Dict[str, Any]:
 
     return {
         "provider_name": provider_name,
-        "model_name": model_name or "deterministic fallback / n/a",
+        "model_name": model_name or "deterministic fixture / n/a",
         "generate_function_available": generate_available,
         "parse_function_available": parse_available,
         "gemini_api_key_detected": api_key_detected,

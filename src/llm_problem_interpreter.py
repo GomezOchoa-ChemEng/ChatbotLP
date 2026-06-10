@@ -12,6 +12,14 @@ from .model_builder import build_market_instance
 from .schema import Bid, Consumer, Node, ProblemState, Product, Supplier, Technology, TransportLink
 
 
+class LLMInvalidJSONError(ValueError):
+    """Raised when a live LLM interpretation response is not valid JSON."""
+
+
+class LLMSchemaError(ValueError):
+    """Raised when live LLM JSON cannot be converted into the project schema."""
+
+
 SEMANTIC_PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -71,11 +79,16 @@ def interpret_problem_from_text(text: str) -> Dict[str, Any]:
         if not response_text or not str(response_text).strip():
             raise RuntimeError("LLM returned empty response")
 
-        semantic_plan = normalize_semantic_plan(json.loads(str(response_text).strip()))
-        _validate_semantic_plan(semantic_plan)
-        return build_problem_artifacts_from_semantic_plan(semantic_plan)
+        raw_plan = json.loads(str(response_text).strip())
+        try:
+            _validate_semantic_plan(raw_plan)
+            semantic_plan = normalize_semantic_plan(raw_plan)
+            _validate_semantic_plan(semantic_plan)
+            return build_problem_artifacts_from_semantic_plan(semantic_plan)
+        except ValueError as exc:
+            raise LLMSchemaError(f"LLM output failed schema validation: {exc}") from exc
     except json.JSONDecodeError as exc:
-        raise ValueError(f"LLM output is not valid JSON: {exc}") from exc
+        raise LLMInvalidJSONError(f"LLM output is not valid JSON: {exc}") from exc
     except Exception:
         raise
 
@@ -145,6 +158,7 @@ Requirements:
 - Do not leave transport_links[].capacity null when a collective capacity statement applies.
 - Do not list transport costs or capacities separately from transport_links; store them in each individual transport link record.
 - Put per-unit technology operating costs on technologies[].cost when a transformation cost is stated.
+- Put technology fixed investment costs on technologies[].fixed_cost when stated.
 - Do not replace missing numerical values with zero. Preserve null until the user provides a value or explicitly confirms a zero/default assumption.
 - Allow negative bid prices.
 - Allow transformation technologies with positive and negative yield coefficients.
@@ -161,7 +175,7 @@ Required JSON shape:
   "consumers": [{{"id": "C1", "node": "N2", "product": "P1", "capacity": 10.0}}],
   "transport_links": [{{"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": 10.0, "cost": 0.0}}],
   "bids": [{{"id": "B1", "owner_id": "S1", "owner_type": "supplier", "product_id": "P1", "price": 1.0, "quantity": 10.0}}],
-  "technologies": [{{"id": "K1", "node": "N1", "capacity": 5.0, "cost": 0.0, "yield_coefficients": {{"P1": -1.0, "P2": 0.8}}}}],
+  "technologies": [{{"id": "K1", "node": "N1", "capacity": 5.0, "cost": 0.0, "fixed_cost": 0.0, "yield_coefficients": {{"P1": -1.0, "P2": 0.8}}}}],
   "missing_information": ["short string"],
   "ambiguities": ["short string"]
 }}
@@ -174,6 +188,9 @@ Problem description:
 
 
 def _validate_semantic_plan(plan: Dict[str, Any]) -> None:
+    if not isinstance(plan, dict):
+        raise ValueError(f"Expected JSON object, got {type(plan)}")
+
     for key in SEMANTIC_PLAN_SCHEMA["required"]:
         if key not in plan:
             raise ValueError(f"Missing required key: {key}")
@@ -253,6 +270,7 @@ def build_state_from_semantic_plan(plan: Dict[str, Any]) -> ProblemState:
             node=_resolve_reference(technology_data.get("node"), node_aliases),
             capacity=technology_data.get("capacity"),
             cost=technology_data.get("cost"),
+            fixed_cost=technology_data.get("fixed_cost"),
             yield_coefficients={
                 _resolve_reference(product_id, product_aliases): coefficient
                 for product_id, coefficient in technology_data.get("yield_coefficients", {}).items()
@@ -361,6 +379,8 @@ def _resolve_reference(value: Any, alias_map: Dict[str, str]) -> Any:
 
 
 __all__ = [
+    "LLMInvalidJSONError",
+    "LLMSchemaError",
     "SEMANTIC_PLAN_SCHEMA",
     "build_problem_artifacts_from_semantic_plan",
     "build_state_from_semantic_plan",

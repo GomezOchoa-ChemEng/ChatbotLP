@@ -100,7 +100,10 @@ class SampatReasoningEngine:
         benchmark_case = (
             state.benchmark.case_family
             if state.benchmark and state.benchmark.case_family
-            else infer_benchmark_case(bool(state.technologies), any(bid.price < 0 for bid in state.bids))
+            else infer_benchmark_case(
+                bool(state.technologies),
+                any(bid.price is not None and bid.price < 0 for bid in state.bids),
+            )
         )
         artifacts.append(
             GroundedArtifact(
@@ -110,7 +113,9 @@ class SampatReasoningEngine:
                 data={
                     "case_family": benchmark_case,
                     "has_technology": bool(state.technologies),
-                    "has_negative_bids": any(bid.price < 0 for bid in state.bids),
+                    "has_negative_bids": any(
+                        bid.price is not None and bid.price < 0 for bid in state.bids
+                    ),
                 },
             )
         )
@@ -442,6 +447,21 @@ class SampatReasoningEngine:
         missing: List[MissingArtifact] = []
 
         if plan.grounding_mode not in {"model", "solver", "theorem"} and plan.object not in {"prices", "technologies"}:
+            return artifacts, missing
+
+        validation = validate_state(state)
+        if not validation["solver_ready"]:
+            gaps = validation["missing_parameters"] + validation["invalid_references"]
+            missing.append(
+                MissingArtifact(
+                    name="primal_scaffold",
+                    required_for=["model_grounding"],
+                    reason=(
+                        "The current ProblemState is not formulation-ready: "
+                        + "; ".join(gaps[:6])
+                    ),
+                )
+            )
             return artifacts, missing
 
         primal = build_primal_representation(state)

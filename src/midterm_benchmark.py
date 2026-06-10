@@ -18,7 +18,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import pandas as pd
 
 from .chatbot_engine import run_chatbot_session
+from .llm_adapter import LLMConfigurationError
 from .llm_problem_interpreter import (
+    LLMInvalidJSONError,
+    LLMSchemaError,
     build_problem_artifacts_from_semantic_plan,
     build_state_from_semantic_plan,
     interpret_problem_from_text,
@@ -218,7 +221,8 @@ class MidtermBenchmarkConfig:
     reasoning_prompt_ids: Optional[Tuple[str, ...]] = None
     use_llm: bool = True
     use_llm_for_reasoning: bool = True
-    fallback_to_reference_fixture: bool = True
+    use_deterministic_fixture: bool = False
+    fallback_to_reference_fixture: bool = False
     attempt_solve: bool = True
     run_reasoning: bool = True
 
@@ -768,6 +772,21 @@ def evaluate_midterm_prompt_case(
         semantic_plan=interpretation.get("semantic_plan"),
         prose_input=case.get("prose"),
     )
+    metadata = interpretation.get("metadata", {})
+    metadata["validation_passed"] = bool(validation.get("solver_ready", False))
+    metadata["missing_fields"] = _validation_missing_fields(validation)
+    metadata["solver_ready"] = bool(validation.get("solver_ready", False))
+    metadata["solver_status"] = solve_result.get("status") if isinstance(solve_result, dict) else None
+    if metadata.get("failure_type"):
+        primary_metrics["primary_success"] = False
+        primary_metrics["failure_type"] = metadata["failure_type"]
+    elif solve_result.get("status") == "failed":
+        metadata["failure_type"] = "solver_failed"
+        primary_metrics["primary_success"] = False
+        primary_metrics["failure_type"] = "solver_failed"
+    else:
+        metadata["failure_type"] = primary_metrics.get("failure_type")
+        metadata["primary_success"] = bool(primary_metrics.get("primary_success", False))
     removal_incentive_diagnostics = build_supplier_removal_incentive_diagnostics(
         state=actual_state,
         solve_result=solve_result,
@@ -825,7 +844,7 @@ def evaluate_midterm_prompt_case(
         "explanation_generated": explanation_generated,
         "blocking_errors": state_comparison["blocking_errors"],
         "benign_extra_name_fields": state_comparison["benign_extra_name_fields"],
-        "interpretation_metadata": interpretation.get("metadata", {}),
+        "interpretation_metadata": metadata,
     }
 
 
@@ -1696,11 +1715,23 @@ def build_midterm_output_tables(case_results: Sequence[Dict[str, Any]]) -> Dict[
         metadata_rows.append(
             {
                 "prompt_id": result["prompt_id"],
+                "evaluation_mode": metadata.get("evaluation_mode"),
                 "interpretation_source": metadata.get("interpretation_source"),
+                "live_llm_attempted": metadata.get("live_llm_attempted"),
+                "llm_provider": metadata.get("llm_provider"),
+                "llm_model": metadata.get("llm_model"),
+                "llm_error_type": metadata.get("llm_error_type"),
+                "llm_error_message": metadata.get("llm_error_message"),
+                "validation_passed": metadata.get("validation_passed"),
+                "missing_fields": "; ".join(metadata.get("missing_fields") or []),
+                "solver_ready": metadata.get("solver_ready"),
+                "solver_status": metadata.get("solver_status"),
+                "failure_type": metadata.get("failure_type"),
+                "primary_success": metadata.get("primary_success"),
+                "deterministic_fixture_used": metadata.get("deterministic_fixture_used"),
                 "fallback_used": metadata.get("fallback_used"),
                 "fallback_reason": metadata.get("fallback_reason"),
                 "llm_failure": metadata.get("llm_failure"),
-                "llm_provider": metadata.get("llm_provider"),
                 "gemini_model": metadata.get("gemini_model"),
             }
         )
@@ -1784,62 +1815,118 @@ def gemini_is_configured() -> bool:
     return bool(os.getenv("GEMINI_API_KEY")) and os.getenv("LLM_PROVIDER", "").lower() == "gemini"
 
 
-def _run_interpretation(
-    case: Dict[str, Any],
-    config: MidtermBenchmarkConfig,
-) -> Dict[str, Any]:
-    metadata = {
+def _deterministic_fixture_enabled(config: MidtermBenchmarkConfig) -> bool:
+    """Return whether benchmark fixtures were explicitly requested."""
+
+    return bool(
+        config.use_deterministic_fixture
+        or (not config.use_llm and config.fallback_to_reference_fixture)
+    )
+
+
+def _base_interpretation_metadata(config: MidtermBenchmarkConfig) -> Dict[str, Any]:
+    fixture_enabled = _deterministic_fixture_enabled(config)
+    evaluation_mode = "live_llm" if config.use_llm else "deterministic_fixture" if fixture_enabled else "not_run"
+    return {
+        "evaluation_mode": evaluation_mode,
         "interpretation_source": "not_run",
+        "live_llm_attempted": False,
         "llm_provider": os.getenv("LLM_PROVIDER"),
+        "llm_model": os.getenv("GEMINI_MODEL"),
         "gemini_model": os.getenv("GEMINI_MODEL"),
         "gemini_configured": gemini_is_configured(),
+        "llm_error_type": None,
+        "llm_error_message": None,
+        "validation_passed": False,
+        "missing_fields": [],
+        "solver_ready": False,
+        "solver_status": None,
+        "failure_type": None,
+        "primary_success": False,
+        "deterministic_fixture_used": False,
+        # Legacy fields retained for older notebooks/tables. They are never
+        # used to recover a live LLM failure.
         "fallback_used": False,
         "fallback_reason": None,
         "llm_failure": None,
     }
 
+
+def _record_llm_failure(metadata: Dict[str, Any], exc: Exception) -> None:
+    metadata["llm_error_type"] = exc.__class__.__name__
+    metadata["llm_error_message"] = str(exc)
+    metadata["llm_failure"] = f"{exc.__class__.__name__}: {exc}"
+    if isinstance(exc, LLMConfigurationError):
+        metadata["failure_type"] = "llm_not_configured"
+    elif isinstance(exc, LLMInvalidJSONError):
+        metadata["failure_type"] = "llm_invalid_json"
+    elif isinstance(exc, LLMSchemaError):
+        metadata["failure_type"] = "llm_schema_error"
+    else:
+        metadata["failure_type"] = "llm_call_failed"
+    metadata["primary_success"] = False
+
+
+def _validation_missing_fields(validation: Dict[str, Any]) -> List[str]:
+    return list(
+        dict.fromkeys(
+            list(validation.get("missing_parameters", []))
+            + list(validation.get("invalid_references", []))
+            + list(validation.get("incomplete_technologies", []))
+        )
+    )
+
+
+def _run_interpretation(
+    case: Dict[str, Any],
+    config: MidtermBenchmarkConfig,
+) -> Dict[str, Any]:
+    metadata = _base_interpretation_metadata(config)
+    fixture_enabled = _deterministic_fixture_enabled(config)
+
     if config.use_llm:
         metadata["interpretation_source"] = "live_llm_pipeline"
-        if gemini_is_configured():
-            try:
-                artifacts = interpret_problem_from_text(case["prose"])
-                return {
-                    "semantic_plan": artifacts.get("semantic_plan"),
-                    "state": artifacts.get("problem_state"),
-                    "market_instance": artifacts.get("market_instance"),
-                    "metadata": metadata,
-                }
-            except Exception as exc:
-                metadata["llm_failure"] = f"{exc.__class__.__name__}: {exc}"
-                if not config.fallback_to_reference_fixture:
-                    return {"semantic_plan": None, "state": None, "metadata": metadata}
-        else:
-            metadata["llm_failure"] = (
-                "Gemini is not configured; GEMINI_API_KEY is empty or LLM_PROVIDER is not gemini."
-            )
-            if not config.fallback_to_reference_fixture:
-                return {"semantic_plan": None, "state": None, "metadata": metadata}
-    elif not config.fallback_to_reference_fixture:
-        metadata["interpretation_source"] = "skipped_by_user_config"
-        return {"semantic_plan": None, "state": None, "metadata": metadata}
+        metadata["live_llm_attempted"] = True
+        try:
+            artifacts = interpret_problem_from_text(case["prose"])
+        except Exception as exc:
+            _record_llm_failure(metadata, exc)
+            if metadata["failure_type"] == "llm_not_configured":
+                print(f"Live LLM evaluation failed: {metadata['llm_error_message']}")
+            return {"semantic_plan": None, "state": None, "metadata": metadata}
 
-    if config.fallback_to_reference_fixture:
-        artifacts = build_problem_artifacts_from_semantic_plan(case["expected_plan"])
-        metadata["interpretation_source"] = (
-            "expected_fixture_fallback_after_llm_failure"
-            if metadata.get("llm_failure")
-            else "deterministic_fallback"
-        )
-        metadata["fallback_used"] = True
-        metadata["fallback_reason"] = metadata.get("llm_failure") or "live LLM disabled"
+        state = artifacts.get("problem_state")
+        validation = validate_state(state) if isinstance(state, ProblemState) else {}
+        metadata["validation_passed"] = bool(validation.get("solver_ready", False))
+        metadata["missing_fields"] = _validation_missing_fields(validation)
+        metadata["solver_ready"] = bool(validation.get("solver_ready", False))
+        if not metadata["solver_ready"]:
+            metadata["failure_type"] = "incomplete_problem_state"
         return {
-            "semantic_plan": artifacts["semantic_plan"],
-            "state": artifacts["problem_state"],
-            "market_instance": artifacts["market_instance"],
+            "semantic_plan": artifacts.get("semantic_plan"),
+            "state": state,
+            "market_instance": artifacts.get("market_instance"),
+            "validation_result": validation,
             "metadata": metadata,
         }
 
-    return {"semantic_plan": None, "state": None, "metadata": metadata}
+    if not fixture_enabled:
+        metadata["interpretation_source"] = "skipped_by_user_config"
+        metadata["failure_type"] = "solver_not_ready"
+        return {"semantic_plan": None, "state": None, "metadata": metadata}
+
+    artifacts = build_problem_artifacts_from_semantic_plan(case["expected_plan"])
+    metadata["evaluation_mode"] = "deterministic_fixture"
+    metadata["interpretation_source"] = "deterministic_fixture"
+    metadata["deterministic_fixture_used"] = True
+    metadata["fallback_used"] = True
+    metadata["fallback_reason"] = "live LLM disabled; deterministic fixture explicitly requested"
+    return {
+        "semantic_plan": artifacts["semantic_plan"],
+        "state": artifacts["problem_state"],
+        "market_instance": artifacts["market_instance"],
+        "metadata": metadata,
+    }
 
 
 def _select_or_run_solve_result(
@@ -1854,8 +1941,11 @@ def _select_or_run_solve_result(
     if not validation.get("solver_ready", False):
         return _skipped_solve_result("state is not solver-ready"), None
 
-    model = build_model_from_state(state)
-    raw_result = solve_model(model)
+    try:
+        model = build_model_from_state(state)
+        raw_result = solve_model(model)
+    except Exception as exc:
+        return _failed_solve_result(exc), None
     solve_dict = raw_result.to_dict() if hasattr(raw_result, "to_dict") else dict(raw_result)
     solver_results = None
     try:
@@ -1874,6 +1964,19 @@ def _skipped_solve_result(reason: str) -> Dict[str, Any]:
         "solver_time": 0.0,
         "solution": {},
         "termination_condition": "skipped",
+        "solver_name": None,
+    }
+
+
+def _failed_solve_result(exc: Exception) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "status": "failed",
+        "message": f"{exc.__class__.__name__}: {exc}",
+        "objective_value": None,
+        "solver_time": 0.0,
+        "solution": {},
+        "termination_condition": "solver_failed",
         "solver_name": None,
     }
 

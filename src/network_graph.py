@@ -203,6 +203,7 @@ def _build_node_spec(
         prefix = f"technology:{technology.id}"
         display_attributes[f"{prefix}:capacity"] = _format_value(technology.capacity)
         display_attributes[f"{prefix}:cost"] = _format_value(technology.cost)
+        display_attributes[f"{prefix}:fixed_cost"] = _format_value(getattr(technology, "fixed_cost", None))
         display_attributes[f"{prefix}:yields"] = _format_yields(technology.yield_coefficients, product_labels)
 
     return GraphNodeSpec(
@@ -317,10 +318,18 @@ def _overlay_technology_activity(
         if node is None:
             continue
         activity = _lookup_result_value(results.technology_extents, technology.id)
+        installation = _lookup_result_value(getattr(results, "technology_installations", {}), technology.id)
         node.solution.setdefault("technology_activity", {})[technology.id] = activity
         node.display_attributes[f"solution:technology_activity:{technology.id}"] = _format_value(activity)
+        if installation is not None:
+            node.solution.setdefault("technology_installation", {})[technology.id] = installation
+            node.display_attributes[f"solution:technology_selected:{technology.id}"] = (
+                "yes" if installation >= 0.5 else "no"
+            )
         if activity is not None:
             node.active = abs(activity) > activity_tolerance
+        if installation is not None:
+            node.active = installation >= 0.5
 
         outputs: Dict[str, Optional[float]] = {}
         inputs: Dict[str, Optional[float]] = {}

@@ -74,6 +74,7 @@ def build_market_instance(state: ProblemState) -> MarketInstance:
             node=technology.node,
             capacity=technology.capacity,
             cost=technology.cost,
+            fixed_cost=technology.fixed_cost,
             yield_coefficients=dict(technology.yield_coefficients),
         )
         for technology in state.technologies
@@ -122,6 +123,7 @@ def _build_data_from_market_instance(instance: MarketInstance) -> Dict[str, Any]
         "technology_nodes": {},
         "technology_capacities": {},
         "technology_costs": {},
+        "technology_fixed_costs": {},
         "technology_yields": {},
     }
 
@@ -147,6 +149,7 @@ def _build_data_from_market_instance(instance: MarketInstance) -> Dict[str, Any]
         data["technologies"].append(technology.id)
         data["technology_nodes"][technology.id] = technology.node
         data["technology_costs"][technology.id] = technology.cost
+        data["technology_fixed_costs"][technology.id] = technology.fixed_cost
         if technology.capacity is not None:
             data["technology_capacities"][technology.id] = technology.capacity
         for product_id, coefficient in technology.yield_coefficients.items():

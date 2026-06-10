@@ -8,7 +8,7 @@ This script demonstrates:
 3. Initializing GeminiExplanationProvider
 4. Registering it with the LLM provider registry
 5. Running a chatbot session with LLM explanations
-6. Demonstrating fallback behavior when Gemini is unavailable
+6. Demonstrating deterministic_fixture_mode for explanation-only offline use
 
 Notes:
 - Install dependencies before running:
@@ -60,20 +60,20 @@ def setup_gemini_api_key() -> None:
     except Exception:
         pass
 
-    # Fallback to manual input
+    # Manual API key input when Colab secrets are unavailable.
     try:
         from getpass import getpass
 
         manual_key = getpass(
-            "Enter GEMINI_API_KEY (leave blank to continue in fallback mode): "
+            "Enter GEMINI_API_KEY (leave blank to continue in deterministic_fixture_mode): "
         ).strip()
         if manual_key:
             os.environ["GEMINI_API_KEY"] = manual_key
             print("GEMINI_API_KEY set from manual input.")
         else:
-            print("No API key provided. The demo will use fallback mode.")
+            print("No API key provided. The demo will use deterministic_fixture_mode.")
     except Exception:
-        print("Could not prompt for GEMINI_API_KEY. The demo will use fallback mode.")
+        print("Could not prompt for GEMINI_API_KEY. The demo will use deterministic_fixture_mode.")
 
 
 def create_minimal_supply_chain_problem() -> ProblemState:
@@ -110,6 +110,7 @@ def create_minimal_supply_chain_problem() -> ProblemState:
             destination="N2",
             product="P1",
             capacity=100.0,
+            cost=0.0,
         )
     )
 
@@ -176,7 +177,7 @@ def demo_with_gemini() -> None:
         print("GeminiExplanationProvider initialized and registered.")
     except Exception as e:
         print(f"Could not initialize Gemini provider: {e}")
-        print("The system will fall back to the rule-based explanation generator.")
+        print("Continuing with deterministic_fixture_mode for explanation-only output.")
 
     result = run_chatbot_session(
         state=state,
@@ -190,10 +191,10 @@ def demo_with_gemini() -> None:
     print(f"\nResponse:\n{result.get('response')}")
 
 
-def demo_fallback_without_api_key() -> None:
-    """Demonstrate automatic fallback when GEMINI_API_KEY is missing."""
+def demo_offline_fixture_without_api_key() -> None:
+    """Demonstrate offline_fixture_demo behavior when GEMINI_API_KEY is missing."""
     print("\n" + "=" * 60)
-    print("DEMO: Fallback to Rule-Based Explanations")
+    print("DEMO: Offline Fixture Demo for Rule-Based Explanations")
     print("=" * 60)
 
     original_key = os.environ.pop("GEMINI_API_KEY", None)
@@ -201,7 +202,7 @@ def demo_fallback_without_api_key() -> None:
 
     state = create_minimal_supply_chain_problem()
 
-    print("Running without GEMINI_API_KEY. use_llm=True should trigger fallback.")
+    print("Running without GEMINI_API_KEY in deterministic_fixture_mode for explanations.")
 
     result = run_chatbot_session(
         state=state,
@@ -212,7 +213,7 @@ def demo_fallback_without_api_key() -> None:
 
     print(f"\nIntent detected: {result.get('intent')}")
     print(f"Success: {result.get('success')}")
-    print(f"\nFallback response:\n{result.get('response')}")
+    print(f"\nOffline fixture demo response:\n{result.get('response')}")
 
     if original_key is not None:
         os.environ["GEMINI_API_KEY"] = original_key
@@ -221,10 +222,10 @@ def demo_fallback_without_api_key() -> None:
 
 if __name__ == "__main__":
     print("Supply Chain Chatbot Colab Demo")
-    print("This script demonstrates Gemini integration with graceful fallback.")
+    print("This script demonstrates Gemini integration plus explicit offline_fixture_demo behavior.")
 
     demo_with_gemini()
-    demo_fallback_without_api_key()
+    demo_offline_fixture_without_api_key()
 
     print("\n" + "=" * 60)
     print("Demo completed.")

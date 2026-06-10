@@ -1,0 +1,5 @@
+prompt_id,metric,row_kind,origin,destination,product,capacity,cost,expected_origin,expected_destination,expected_product,expected_capacity,expected_cost,all_required_route_attributes_present,route_complete_for_reasoning,route_matches,capacity_matches,cost_matches,route_cost_binding_error,pass,reason
+canonical,transport_link_attributes:EauClaire_to_Menomonie:Manure,expected_route,eau_claire,menomonie,manure,1000.0,0.1,EauClaire,Menomonie,Manure,1000.0,0.1,True,True,True,True,True,False,True,pass
+canonical,transport_link_attributes:EauClaire_to_BlackRiverFalls:Manure,expected_route,eau_claire,black_river_falls,manure,1000.0,0.2,EauClaire,BlackRiverFalls,Manure,1000.0,0.2,True,True,True,True,True,False,True,pass
+paraphrased,transport_link_attributes:EauClaire_to_Menomonie:Manure,expected_route,Eau_Claire,Menomonie,Manure,1000.0,0.1,EauClaire,Menomonie,Manure,1000.0,0.1,True,True,True,True,True,False,True,pass
+paraphrased,transport_link_attributes:EauClaire_to_BlackRiverFalls:Manure,expected_route,Eau_Claire,Black_River_Falls,Manure,1000.0,0.2,EauClaire,BlackRiverFalls,Manure,1000.0,0.2,True,True,True,True,True,False,True,pass

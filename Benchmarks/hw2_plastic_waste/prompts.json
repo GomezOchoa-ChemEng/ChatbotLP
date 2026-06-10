@@ -1,0 +1,17 @@
+{
+  "benchmark_id": "hw2_plastic_waste",
+  "prompts": [
+    {
+      "id": "canonical",
+      "label": "Canonical HW2 plastic waste statement",
+      "expected_solver_ready": true,
+      "text": "Solve HW#2, the plastic waste processing supply-chain design problem. Nodes are Madison (MAD) and Milwaukee (MKE). Products are plastic waste, pyrolysis oil, and ethylene. MAD supplies 33100 ton/year plastic waste at explicit supply cost 0 dollars per ton, and MKE supplies 77300 ton/year plastic waste at explicit supply cost 0 dollars per ton. Each city has ethylene demand capacity 100000 ton/year and willingness to pay 1050 dollars per ton. Plastic waste, pyrolysis oil, and ethylene can move MAD to MKE and MKE to MAD; every product-direction transport link has cost 10 dollars per ton and capacity 100000 ton/year. Pyrolysis can be installed in MAD and MKE, converting 1 ton plastic waste into 0.7 ton pyrolysis oil, with operating cost 14 dollars per ton plastic processed, capacity 100000 ton plastic/year, and investment cost 2000000 dollars/year per facility. Steam cracking can be installed in MAD and MKE, converting 1 ton pyrolysis oil into 0.25 ton ethylene, with operating cost 71 dollars per ton pyrolysis oil processed, capacity 100000 ton pyrolysis oil/year, and investment cost 2800000 dollars/year per facility."
+    },
+    {
+      "id": "missing_investment_cost",
+      "label": "Missing investment costs should block design solve",
+      "expected_solver_ready": false,
+      "text": "Use the same MAD/MKE plastic waste processing problem with all supply, demand, transport, yield, operating cost, and capacity data, but do not specify the technology investment costs. The design problem should remain not solver-ready until fixed investment costs are provided or explicitly assumed."
+    }
+  ]
+}

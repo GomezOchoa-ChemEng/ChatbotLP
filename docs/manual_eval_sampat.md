@@ -474,7 +474,7 @@ Prove Theorem 1 even though the necessary assumptions are not satisfied.
 
 ---
 
-## Category 7 — LLM / Fallback Behavior
+## Category 7 — LLM / Offline Fixture Demo Behavior
 
 ### Prompt F1
 **Prompt:**  
@@ -485,11 +485,11 @@ Run once with LLM enabled and once with LLM disabled if possible.
 
 **What a good answer should contain:**
 - with LLM enabled: polished theorem/proof style output,
-- with LLM disabled: graceful fallback, still honest and coherent.
+- with LLM disabled: deterministic_fixture_mode output, still honest and coherent.
 
 **Failure conditions:**
 - system crash,
-- unreadable fallback,
+- unreadable offline_fixture_demo output,
 - inconsistent theorem status.
 
 ---
@@ -504,11 +504,11 @@ Run once with LLM enabled and once with LLM disabled if possible.
 **What a good answer should contain:**
 - stable behavior in both modes,
 - clearer rendering with LLM,
-- no loss of mathematical honesty in fallback mode.
+- no loss of mathematical honesty in deterministic_fixture_mode.
 
 **Failure conditions:**
 - output drift between modes that changes the mathematics,
-- broken fallback.
+- broken offline_fixture_demo output.
 
 ---
 
@@ -575,6 +575,6 @@ The current theorem/dual layer is ready for broader use only if:
 - dual responses are visually clean and notation-consistent,
 - Section 2.3 explanations sound domain-specific rather than generic,
 - unsupported requests fail honestly and clearly,
-- fallback behavior is graceful when LLM support is unavailable.
+- offline_fixture_demo behavior is graceful when LLM support is intentionally disabled.
 
 If these conditions are not met, refine prompt design, formal context completeness, or domain registry quality before expanding scope.

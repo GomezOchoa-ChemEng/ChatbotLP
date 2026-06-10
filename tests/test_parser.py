@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 # ensure imports work
 sys.path.insert(0, str(Path.cwd()))
 
@@ -149,8 +151,8 @@ def test_parse_with_llm_enabled():
     registry.reset()
 
 
-def test_parse_llm_fallback_on_error():
-    """If LLM parser fails, fall back to rule-based parsing."""
+def test_parse_llm_error_surfaces_without_rule_based_fallback():
+    """If LLM parser fails in LLM mode, expose the failure."""
     from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
     from unittest.mock import Mock
 
@@ -165,8 +167,7 @@ def test_parse_llm_fallback_on_error():
     registry = LLMProviderRegistry.get_instance()
     registry.set_provider(provider)
 
-    # Should not raise despite LLM parser error
-    entities = parse_supply_chain_text("Node Z", use_llm=True)
-    assert entities["nodes"] and entities["nodes"][0]["id"] == "Z"
+    with pytest.raises(RuntimeError, match="parser crashed"):
+        parse_supply_chain_text("Node Z", use_llm=True)
 
     registry.reset()

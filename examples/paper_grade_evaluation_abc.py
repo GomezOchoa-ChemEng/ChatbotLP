@@ -5,8 +5,8 @@ Local usage from the repository root:
     python examples/paper_grade_evaluation_abc.py
 
 Set GEMINI_API_KEY in the script environment to run live Gemini interpretation.
-Without a key, the evaluator uses explicit expected-fixture fallback and records
-that fallback in the metadata table output.
+Without a key, live mode reports live_llm_failure metadata. Use --no-llm for
+deterministic_fixture_mode.
 """
 
 from __future__ import annotations
@@ -60,7 +60,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--strict-llm",
         action="store_true",
-        help="Do not fall back to expected fixtures when live LLM interpretation is unavailable or fails.",
+        help=(
+            "Deprecated compatibility flag. Live LLM failures are always reported "
+            "without expected fixture substitution."
+        ),
     )
     parser.add_argument(
         "--skip-reasoning",
@@ -142,7 +145,7 @@ def main() -> None:
         "selected_cases": selected_cases,
         "use_llm": not args.no_llm,
         "use_llm_for_reasoning": not args.no_llm,
-        "fallback_to_expected_fixture": not args.strict_llm,
+        "use_deterministic_fixture": args.no_llm,
         "attempt_solve": False if args.no_solve else None,
         "run_reasoning": False if skip_reasoning else None,
         "reasoning_prompt_subset": reasoning_prompt_subset,
@@ -169,9 +172,10 @@ def main() -> None:
     metadata_rows = [
         {
             "case": case["name"],
+            "evaluation_mode": case["interpretation_metadata"].get("evaluation_mode"),
             "interpretation_source": case["interpretation_metadata"].get("interpretation_source"),
-            "fallback_used": case["interpretation_metadata"].get("fallback_used"),
-            "fallback_reason": case["interpretation_metadata"].get("fallback_reason"),
+            "deterministic_fixture_used": case["interpretation_metadata"].get("deterministic_fixture_used"),
+            "failure_type": case["interpretation_metadata"].get("failure_type"),
             "llm_failure": case["interpretation_metadata"].get("llm_failure"),
         }
         for case in report["cases"]

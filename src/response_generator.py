@@ -378,6 +378,11 @@ class ResponseGenerator:
                     f"{flow_id}={quantity:g}" for flow_id, quantity in list(solver_results.transport_flows.items())[:4]
                 ]
                 lines.append("Transport activity: " + ", ".join(flows))
+            if getattr(problem_state, "benchmark", None) is None:
+                lines.append(
+                    "The solution is conditional on the interpreted formulation. "
+                    "Please review the formulation before treating the result as correct."
+                )
         elif validation and validation.get("solver_ready"):
             lines.append("The model is ready, but no solver result is available yet.")
 

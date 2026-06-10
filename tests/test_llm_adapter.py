@@ -298,7 +298,7 @@ class TestGeminiLLMProvider(unittest.TestCase):
         with patch("builtins.print") as mock_print:
             message = print_active_provider_debug_info()
         self.assertIn("RuleBasedProvider", message)
-        self.assertIn("deterministic fallback", message)
+        self.assertIn("deterministic fixture", message)
         mock_print.assert_called_once()
 
     def test_get_provider_diagnostics_for_rule_based_provider(self):
@@ -351,7 +351,7 @@ class TestConvenienceFunctions(unittest.TestCase):
         resp = generate_response("hint", {}, use_llm=True)
         self.assertEqual(resp, "LLM-based explanation")
 
-        # fallback when generator raises
+        # explanation-layer deterministic_fixture_mode when generator raises
         def broken(mode, ctx):
             raise RuntimeError("boom")
         provider = RuleBasedProvider(

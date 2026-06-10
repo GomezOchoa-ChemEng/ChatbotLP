@@ -1,0 +1,9 @@
+case,prompt_id,prompt_label,success,required_terms,required_terms_present,intent,render_mode,response_source,fallback_triggered,fallback_reason,llm_exception_type,response_preview
+canonical,primal_lp,Primal LP formulation,True,,,formal_math,markdown_latex,llm,False,,,"### 1. Intuition
+In the coordinated management framework of Sampat et al. (2019), manure management is treated as a spatial clearing problem. The system moves manure from locations of surplus (suppliers) to locations of potential utilizatio"
+canonical,economic_intuition,Economic intuition,True,,,explanation,,llm,False,,,"Based on the provided state for the **Manure Allocation Cooperative**, here is a guided explanation of the optimal allocation.
+
+### 1. Intuition: Priority of Value
+The core goal of this system is to move the manure from where it is produced"
+canonical,all_manure,All manure feasibility,True,,,explanation,,llm,False,,,"In the context of this coordinated supply chain, **yes**, the dairy farmer at Eau Claire can get rid of all 1,000 units of manure. This is possible because the total regional demand exactly matches the total supply, and the economic incenti"
+canonical,node_balances,Node balance verification,True,,,validation,,llm,False,,,"To verify the node balances for the **Manure Allocation Cooperative**, we analyze the structural equilibrium of the system. In the Sampat et al. (2019) framework, node balances ensure that for every product at every location, the sum of loc"

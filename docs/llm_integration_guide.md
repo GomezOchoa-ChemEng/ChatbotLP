@@ -164,10 +164,11 @@ Gemini does not replace:
 - `model_builder`
 - `solver`
 - `theorem_checker`
-- deterministic fallback generation
+- deterministic_fixture_mode generation for explicit offline demos
 
-If Gemini is not configured, unavailable, or the API call fails, the existing
-callers fall back to deterministic output.
+If Gemini is not configured, unavailable, or the API call fails in live LLM
+evaluation, callers should report live_llm_failure metadata. Offline examples
+can opt into deterministic_fixture_mode explicitly.
 
 Example 1: Use the default rule-based system
 ---------------------------------------------
@@ -328,17 +329,9 @@ class GPTSupplyChainParser(SupplyChainParser):
         import json
         try:
             return json.loads(response.choices[0].message.content)
-        except json.JSONDecodeError:
-            # Fallback to empty entities if parsing fails
-            return {
-                "nodes": [],
-                "products": [],
-                "suppliers": [],
-                "consumers": [],
-                "transport_links": [],
-                "technologies": [],
-                "bids": [],
-            }
+        except json.JSONDecodeError as exc:
+            # Report live_llm_failure; do not replace the interpretation in live mode.
+            raise ValueError(f"live_llm_failure: invalid JSON from parser: {exc}") from exc
 
 
 class GPTExplanationGenerator(ExplanationGenerator):
@@ -514,7 +507,7 @@ Scenario 1: Classroom (Offline, Deterministic)
 Scenario 2: Classroom With Assistant
 - Deploy with real LLM (GPT-4, Claude, etc.)
 - Use provider pattern to swap implementations
-- Keep rule-based as fallback
+- Keep deterministic_fixture_mode available for explicit offline demos
 - Costs managed by institution
 
 Scenario 3: Research Use

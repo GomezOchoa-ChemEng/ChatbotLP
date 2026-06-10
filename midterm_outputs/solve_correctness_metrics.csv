@@ -1,0 +1,27 @@
+prompt_id,metric,expected,actual,pass,details
+canonical,solve_success,True,True,True,
+canonical,objective_match,650.0,650.0,True,
+canonical,accepted_supply_match,"{""Dairy/EauClaire"": 500.0}","{""Dairy/EauClaire"": 500.0}",True,
+canonical,accepted_demand_match,"{""BlackRiverFalls"": 500.0, ""Menomonie"": 0.0}","{""BlackRiverFalls"": 500.0, ""Menomonie"": 0.0}",True,
+canonical,active_flows_match,"{""EauClaire_to_BlackRiverFalls"": 500.0, ""EauClaire_to_Menomonie"": 0.0}","{""EauClaire_to_BlackRiverFalls"": 500.0, ""EauClaire_to_Menomonie"": 0.0}",True,
+canonical,technology_activity_match,{},{},True,
+canonical,technology_outputs_match,{},{},True,
+canonical,demand_revenue_match,750.0,750.0,True,
+canonical,transport_cost_match,100.0,100.0,True,
+canonical,supply_contribution_match,0.0,-0.0,True,
+canonical,technology_cost_match,0.0,0.0,True,
+canonical,balance_residuals_pass,max <= 1e-06,0.0,True,"{""black_river_falls:manure"": 0.0, ""eau_claire:manure"": 0.0, ""menomonie:manure"": 0.0}"
+canonical,state_solver_ready,True,True,True,[]
+paraphrased,solve_success,True,True,True,
+paraphrased,objective_match,650.0,650.0,True,
+paraphrased,accepted_supply_match,"{""Dairy/EauClaire"": 500.0}","{""Dairy/EauClaire"": 500.0}",True,
+paraphrased,accepted_demand_match,"{""BlackRiverFalls"": 500.0, ""Menomonie"": 0.0}","{""BlackRiverFalls"": 500.0, ""Menomonie"": 0.0}",True,
+paraphrased,active_flows_match,"{""EauClaire_to_BlackRiverFalls"": 500.0, ""EauClaire_to_Menomonie"": 0.0}","{""EauClaire_to_BlackRiverFalls"": 500.0, ""EauClaire_to_Menomonie"": 0.0}",True,
+paraphrased,technology_activity_match,{},{},True,
+paraphrased,technology_outputs_match,{},{},True,
+paraphrased,demand_revenue_match,750.0,750.0,True,
+paraphrased,transport_cost_match,100.0,100.0,True,
+paraphrased,supply_contribution_match,0.0,-0.0,True,
+paraphrased,technology_cost_match,0.0,0.0,True,
+paraphrased,balance_residuals_pass,max <= 1e-06,0.0,True,"{""Black_River_Falls:Manure"": 0.0, ""Eau_Claire:Manure"": 0.0, ""Menomonie:Manure"": 0.0}"
+paraphrased,state_solver_ready,True,True,True,[]

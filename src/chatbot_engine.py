@@ -14,8 +14,8 @@ user-facing response.
 """
 
 import logging
-import os
 import re
+from pathlib import Path
 from typing import Dict, Any
 
 from .schema import ProblemState
@@ -72,6 +72,14 @@ class IntentRouter:
 
     def __init__(self):
         self.intent_patterns = [
+            (
+                "visualization",
+                re.compile(
+                    r"\b(show|draw|visuali[sz]e|display|plot)\b.*\b(network|graph|flows?|solution|problem)\b"
+                    r"|\b(show active flows?|draw the problem|show the network)\b",
+                    re.IGNORECASE,
+                ),
+            ),
             (
                 "formal_math",
                 re.compile(
@@ -319,9 +327,46 @@ def _summarize_validation_gaps(validation: Dict[str, Any]) -> str:
     )
 
 
-def _gemini_runtime_was_explicitly_requested() -> bool:
-    provider_name = os.getenv("LLM_PROVIDER", "").strip().lower()
-    return provider_name == "gemini" or bool(os.getenv("GEMINI_API_KEY"))
+def _visualization_requests_solution(user_message: str) -> bool:
+    lowered = user_message.lower()
+    return any(
+        token in lowered
+        for token in (
+            "solution",
+            "active flow",
+            "active flows",
+            "flow",
+            "flows",
+            "activity",
+            "solved",
+        )
+    )
+
+
+def _network_graph_output_path(spec_type: str, title: str) -> Path:
+    stem = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_").lower() or "network_graph"
+    return Path("network_graph_outputs") / f"{stem}_{spec_type}.svg"
+
+
+def _try_render_network_graph(spec: Any) -> Dict[str, Any]:
+    from .network_visualizer import render_graphviz, render_mermaid
+
+    graph_path = None
+    graphviz_error = None
+    try:
+        graph_path = render_graphviz(
+            spec,
+            str(_network_graph_output_path(spec.graph_type, spec.title)),
+            format="svg",
+        )
+    except RuntimeError as exc:
+        graphviz_error = str(exc)
+
+    return {
+        "network_graph_path": graph_path,
+        "mermaid_graph": render_mermaid(spec),
+        "graphviz_error": graphviz_error,
+    }
 
 
 def run_chatbot_session(
@@ -368,6 +413,66 @@ def run_chatbot_session(
     include_reference = mode == "exploration"
 
     try:
+        if intent == "visualization":
+            from .network_graph import build_problem_graph_spec, build_solution_graph_spec
+
+            wants_solution = _visualization_requests_solution(user_message)
+            result["render_mode"] = "markdown"
+
+            if wants_solution:
+                validation = validate_state(state)
+                result["validation_result"] = validation
+                if not validation["solver_ready"]:
+                    spec = build_problem_graph_spec(state)
+                    rendered = _try_render_network_graph(spec)
+                    result.update(rendered)
+                    result["network_graph_spec"] = spec
+                    result["response"] = (
+                        "I built the problem network graph, but active flows require a solver-ready model.\n\n"
+                        f"{_summarize_validation_gaps(validation)}"
+                    )
+                    result["success"] = False
+                    return result
+
+                market_instance = build_market_instance(state)
+                model = build_model_from_market_instance(market_instance)
+                raw_solve_result = solve_model(model)
+                solve_result = normalize_solve_result(raw_solve_result)
+                result["solve_result"] = solve_result
+                result["market_instance"] = market_instance
+
+                if not solve_result.get("success", False):
+                    spec = build_problem_graph_spec(state)
+                    rendered = _try_render_network_graph(spec)
+                    result.update(rendered)
+                    result["network_graph_spec"] = spec
+                    result["response"] = (
+                        "I rendered the problem network, but the solver did not produce a successful solution "
+                        f"(status: {solve_result.get('status')})."
+                    )
+                    result["success"] = False
+                    return result
+
+                solver_results = SolverResults.from_solve_result(raw_solve_result, state)
+                spec = build_solution_graph_spec(state, solver_results)
+                result["solver_results"] = solver_results
+            else:
+                spec = build_problem_graph_spec(state)
+
+            rendered = _try_render_network_graph(spec)
+            result.update(rendered)
+            result["network_graph_spec"] = spec
+            if rendered["network_graph_path"]:
+                result["response"] = f"Generated {spec.graph_type} network graph: {rendered['network_graph_path']}"
+            else:
+                result["response"] = (
+                    f"Built the {spec.graph_type} network graph specification. "
+                    "Graphviz SVG rendering is unavailable, so I returned Mermaid text in `mermaid_graph`. "
+                    f"Renderer note: {rendered['graphviz_error']}"
+                )
+            result["success"] = True
+            return result
+
         reasoning_engine = SampatReasoningEngine()
         if reasoning_engine.should_handle(user_message, intent):
             reasoning_package = reasoning_engine.build_reasoning_package(
@@ -470,33 +575,10 @@ def run_chatbot_session(
                         result["success"] = False
 
                 except LLMConfigurationError as e:
-                    if _gemini_runtime_was_explicitly_requested():
-                        result["response"] = f"LLM interpretation configuration error: {e}"
-                        result["response_metadata"]["fallback_triggered"] = False
-                        result["response_metadata"]["fallback_reason"] = "llm_configuration_error"
-                        result["success"] = False
-                    else:
-                        parsed = parse_supply_chain_text(user_message, use_llm=True)
-                        if any(parsed.values()):
-                            incorporate_parsed_entities(state, parsed)
-                            context = {
-                                "type": "problem_formulation",
-                                "user_message": user_message,
-                                "intent": intent,
-                                "problem_state": state,
-                            }
-                            result["response"], result["response_metadata"] = generate_response_with_metadata(
-                                mode,
-                                context,
-                                use_llm=use_llm,
-                                include_reference=include_reference,
-                            )
-                            result["success"] = True
-                        else:
-                            result["response"] = f"LLM interpretation configuration error: {e}"
-                            result["response_metadata"]["fallback_triggered"] = False
-                            result["response_metadata"]["fallback_reason"] = "llm_configuration_error"
-                            result["success"] = False
+                    result["response"] = f"LLM interpretation configuration error: {e}"
+                    result["response_metadata"]["fallback_triggered"] = False
+                    result["response_metadata"]["fallback_reason"] = "llm_configuration_error"
+                    result["success"] = False
                 except Exception as e:
                     result["response"] = f"LLM interpretation failed: {e}"
                     result["response_metadata"]["fallback_triggered"] = False

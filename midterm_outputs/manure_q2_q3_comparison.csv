@@ -1,0 +1,5 @@
+metric,q2,q3
+supplier_bid,0.0,-0.7
+accepted_supply,500.0,1000.0
+Menomonie_flow,0.0,500.0
+objective_value,650.0,1050.0

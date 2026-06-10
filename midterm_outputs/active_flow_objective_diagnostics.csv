@@ -1,0 +1,3 @@
+prompt_id,link_id,raw_flow_key,origin,resolved_origin_role,destination,resolved_destination_role,product,flow,transport_cost_coefficient,transport_cost_contribution,associated_source_bid,associated_demand_bid,computed_route_net_value
+canonical,t_ec_brf,"('eau_claire', 'black_river_falls')",eau_claire,EauClaire,black_river_falls,BlackRiverFalls,Manure,500.0,0.2,100.0,0.0,1.5,1.3
+paraphrased,T2,"('Eau_Claire', 'Black_River_Falls')",Eau_Claire,EauClaire,Black_River_Falls,BlackRiverFalls,Manure,500.0,0.2,100.0,0.0,1.5,1.3

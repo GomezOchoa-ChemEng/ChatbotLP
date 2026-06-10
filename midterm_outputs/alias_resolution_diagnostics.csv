@@ -1,0 +1,17 @@
+prompt_id,component,raw_interpreted_ids,raw_bid_ids,raw_nodes,raw_origin,raw_destination,raw_product,canonical_resolved_id,reference_id,actual_value,expected_value,numeric_match
+canonical,accepted_supply,s_eau_claire,b_s_ec,eau_claire,,,manure,Dairy/EauClaire,Dairy/EauClaire,500.0,500.0,True
+canonical,accepted_demands,c_black_river_falls,b_c_brf,black_river_falls,,,manure,BlackRiverFalls,BlackRiverFalls,500.0,500.0,True
+canonical,accepted_demands,c_menomonie,b_c_mn,menomonie,,,manure,Menomonie,Menomonie,0.0,0.0,True
+canonical,transport_flows,t_ec_brf,,,eau_claire,black_river_falls,manure,EauClaire_to_BlackRiverFalls,EauClaire_to_BlackRiverFalls,500.0,500.0,True
+canonical,transport_flows,t_ec_mn,,,eau_claire,menomonie,manure,EauClaire_to_Menomonie,EauClaire_to_Menomonie,0.0,0.0,True
+canonical,balance_checks,,,BlackRiverFalls,,,Manure,BlackRiverFalls,BlackRiverFalls,"{""accepted_demand"": 500.0, ""holds"": true, ""incoming_flow"": 500.0}","{""accepted_demand"": 500.0, ""holds"": true, ""incoming_flow"": 500.0}",True
+canonical,balance_checks,,,EauClaire,,,Manure,EauClaire,EauClaire,"{""holds"": true, ""supply"": 500.0, ""total_outgoing_flow"": 500.0}","{""holds"": true, ""supply"": 500.0, ""total_outgoing_flow"": 500.0}",True
+canonical,balance_checks,,,Menomonie,,,Manure,Menomonie,Menomonie,"{""accepted_demand"": 0.0, ""holds"": true, ""incoming_flow"": 0.0}","{""accepted_demand"": 0.0, ""holds"": true, ""incoming_flow"": 0.0}",True
+paraphrased,accepted_supply,S1,B1,Eau_Claire,,,Manure,Dairy/EauClaire,Dairy/EauClaire,500.0,500.0,True
+paraphrased,accepted_demands,C2,B3,Black_River_Falls,,,Manure,BlackRiverFalls,BlackRiverFalls,500.0,500.0,True
+paraphrased,accepted_demands,C1,B2,Menomonie,,,Manure,Menomonie,Menomonie,0.0,0.0,True
+paraphrased,transport_flows,T2,,,Eau_Claire,Black_River_Falls,Manure,EauClaire_to_BlackRiverFalls,EauClaire_to_BlackRiverFalls,500.0,500.0,True
+paraphrased,transport_flows,T1,,,Eau_Claire,Menomonie,Manure,EauClaire_to_Menomonie,EauClaire_to_Menomonie,0.0,0.0,True
+paraphrased,balance_checks,,,BlackRiverFalls,,,Manure,BlackRiverFalls,BlackRiverFalls,"{""accepted_demand"": 500.0, ""holds"": true, ""incoming_flow"": 500.0}","{""accepted_demand"": 500.0, ""holds"": true, ""incoming_flow"": 500.0}",True
+paraphrased,balance_checks,,,EauClaire,,,Manure,EauClaire,EauClaire,"{""holds"": true, ""supply"": 500.0, ""total_outgoing_flow"": 500.0}","{""holds"": true, ""supply"": 500.0, ""total_outgoing_flow"": 500.0}",True
+paraphrased,balance_checks,,,Menomonie,,,Manure,Menomonie,Menomonie,"{""accepted_demand"": 0.0, ""holds"": true, ""incoming_flow"": 0.0}","{""accepted_demand"": 0.0, ""holds"": true, ""incoming_flow"": 0.0}",True

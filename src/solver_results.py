@@ -25,6 +25,7 @@ class SolverResults(BaseModel):
     bid_allocations: Dict[str, float] = Field(default_factory=dict)
     transport_flows: Dict[str, float] = Field(default_factory=dict)
     technology_extents: Dict[str, float] = Field(default_factory=dict)
+    technology_installations: Dict[str, float] = Field(default_factory=dict)
     node_product_duals: Dict[str, float] = Field(default_factory=dict)
     constraint_slacks: Dict[str, float] = Field(default_factory=dict)
     totals_by_product: Dict[str, Dict[str, float]] = Field(default_factory=dict)
@@ -43,6 +44,7 @@ class SolverResults(BaseModel):
         bid_allocations = _extract_var_block(solve_dict, "q")
         transport_flows = _extract_var_block(solve_dict, "f")
         technology_extents = _extract_var_block(solve_dict, "x")
+        technology_installations = _extract_var_block(solve_dict, "y")
         node_product_duals = _extract_node_product_duals(solve_dict.get("dual_values", {}))
         constraint_slacks = {
             key: float(value)
@@ -61,6 +63,7 @@ class SolverResults(BaseModel):
             bid_allocations=bid_allocations,
             transport_flows=transport_flows,
             technology_extents=technology_extents,
+            technology_installations=technology_installations,
             node_product_duals=node_product_duals,
             constraint_slacks=constraint_slacks,
             totals_by_product=totals_by_product,

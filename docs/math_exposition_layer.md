@@ -112,4 +112,4 @@ When the request is routed through the formal math layer, the chatbot result may
 - The dual helper is a scaffold for the currently supported linear model, not a symbolic algebra engine.
 - The theorem-proof path is limited to theorem IDs explicitly present in the registry.
 - Applicability remains structural and deterministic, not formally verified in a proof-assistant sense.
-- Deterministic authority remains unchanged: theorem applicability, primal/dual structure, and fallback behavior still come from the repository's validated structured pipeline, while Gemini only polishes exposition when enabled.
+- Deterministic authority remains unchanged: theorem applicability, primal/dual structure, and offline_fixture_demo behavior still come from the repository's validated structured pipeline, while Gemini only polishes exposition when enabled.

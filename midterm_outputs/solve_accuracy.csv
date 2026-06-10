@@ -1,0 +1,3 @@
+prompt_id,solve_success,status,solver_name,expected_objective,actual_objective,objective_match,accepted_supply_match,accepted_demand_match,transport_flow_match,technology_activity_match,technology_outputs_match,balance_match,demand_revenue_match,transport_cost_match,supply_cost_match,supply_contribution_match,technology_cost_match,accepted_supply_total_match,solver_message
+canonical,True,optimal,glpk,650.0,650.0,True,True,True,True,True,True,True,True,True,True,True,True,True,Solver glpk terminated with status optimal (termination condition: optimal)
+paraphrased,True,optimal,glpk,650.0,650.0,True,True,True,True,True,True,True,True,True,True,True,True,True,Solver glpk terminated with status optimal (termination condition: optimal)

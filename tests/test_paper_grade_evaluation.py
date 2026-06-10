@@ -71,12 +71,13 @@ def test_compare_separates_benign_extra_names_from_blocking_errors():
     assert comparison["structural_match"] is False
 
 
-def test_evaluate_case_fixture_fallback_builds_tables_without_live_llm():
+def test_evaluate_case_deterministic_fixture_builds_tables_without_live_llm():
     case = next(case for case in build_paper_grade_cases() if case["name"] == "canonical_case_a")
     result = evaluate_case(
         case,
         config=EvaluationConfig(
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_expected_fixture=True,
             attempt_solve=False,
             run_reasoning=False,
@@ -87,8 +88,10 @@ def test_evaluate_case_fixture_fallback_builds_tables_without_live_llm():
     assert result["semantic_plan_created"] is True
     assert result["problem_state_created"] is True
     assert result["comparison"]["structural_match"] is True
-    assert result["interpretation_metadata"]["fallback_used"] is True
-    assert result["interpretation_metadata"]["interpretation_source"] == "deterministic_fallback"
+    assert result["interpretation_metadata"]["evaluation_mode"] == "deterministic_fixture"
+    assert result["interpretation_metadata"]["deterministic_fixture_used"] is True
+    assert result["interpretation_metadata"]["interpretation_source"] == "deterministic_fixture"
+    assert result["interpretation_metadata"]["live_llm_attempted"] is False
     assert tables["case_level_summary"].iloc[0]["case"] == "canonical_case_a"
     assert tables["interpretation_accuracy"].iloc[0]["blocking_error_categories"] == ""
 
@@ -141,6 +144,7 @@ def test_selected_case_filter_limits_evaluation_scope():
         config=EvaluationConfig(
             selected_cases=("canonical_case_a", "negative_bid_case_b"),
             use_llm=False,
+            use_deterministic_fixture=True,
             attempt_solve=False,
             run_reasoning=False,
         )
@@ -163,6 +167,8 @@ def test_run_interpretation_false_marks_stage_skipped_but_supplies_fixture_state
         config=EvaluationConfig(
             run_interpretation=False,
             use_llm=False,
+            use_deterministic_fixture=True,
+            fallback_to_expected_fixture=True,
             attempt_solve=False,
             run_reasoning=False,
         ),
@@ -171,7 +177,7 @@ def test_run_interpretation_false_marks_stage_skipped_but_supplies_fixture_state
     assert result["semantic_plan_created"] is False
     assert result["problem_state_created"] is True
     assert result["comparison"]["structural_match"] is True
-    assert result["interpretation_metadata"]["interpretation_source"] == "skipped_by_user_config"
+    assert result["interpretation_metadata"]["interpretation_source"] == "deterministic_fixture_skipped_interpretation"
 
 
 def test_reasoning_prompt_subset_runs_only_requested_prompts():
@@ -187,7 +193,7 @@ def test_reasoning_prompt_subset_runs_only_requested_prompts():
 
 
 def test_quota_safe_demo_preset_uses_three_interpretation_cases_without_reasoning():
-    config = build_evaluation_config("quota_safe_demo", use_llm=False)
+    config = build_evaluation_config("quota_safe_demo", use_llm=False, use_deterministic_fixture=True)
     report = run_paper_grade_evaluation(config=config)
 
     assert [case["name"] for case in report["cases"]] == [
@@ -217,4 +223,29 @@ def test_strict_live_llm_without_configuration_does_not_use_fixture_fallback(mon
     assert result["problem_state_created"] is False
     assert result["interpretation_metadata"]["interpretation_source"] == "live_llm_pipeline"
     assert result["interpretation_metadata"]["fallback_used"] is False
-    assert "Gemini is not configured" in result["interpretation_metadata"]["llm_failure"]
+    assert result["interpretation_metadata"]["failure_type"] == "llm_not_configured"
+    assert result["interpretation_metadata"]["primary_success"] is False
+    assert "GEMINI_API_KEY is not set" in result["interpretation_metadata"]["llm_failure"]
+
+
+def test_live_llm_missing_configuration_ignores_legacy_fixture_flag(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    case = next(case for case in build_paper_grade_cases() if case["name"] == "canonical_case_a")
+
+    result = evaluate_case(
+        case,
+        config=EvaluationConfig(
+            use_llm=True,
+            fallback_to_expected_fixture=True,
+            attempt_solve=False,
+            run_reasoning=False,
+        ),
+    )
+
+    assert result["problem_state_created"] is False
+    assert result["interpretation_metadata"]["evaluation_mode"] == "live_llm"
+    assert result["interpretation_metadata"]["live_llm_attempted"] is True
+    assert result["interpretation_metadata"]["deterministic_fixture_used"] is False
+    assert result["interpretation_metadata"]["failure_type"] == "llm_not_configured"
+    assert result["primary_success"] is False

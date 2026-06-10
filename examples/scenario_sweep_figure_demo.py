@@ -36,7 +36,7 @@ def build_case_a_state(transport_capacity: float):
             {"id": "C1", "node": "N2", "product": "P1", "capacity": 8.0},
         ],
         "transport_links": [
-            {"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": transport_capacity},
+            {"id": "T1", "origin": "N1", "destination": "N2", "product": "P1", "capacity": transport_capacity, "cost": 0.0},
         ],
         "bids": [
             {

@@ -346,22 +346,35 @@ class TestChatbotEngineLLMIntegration:
 
         registry.reset()
 
-    def test_parser_with_llm_in_chatbot(self):
+    def test_problem_formulation_llm_configuration_error_does_not_use_parser_fallback(self):
         from src.llm_adapter import LLMProviderRegistry, RuleBasedProvider
         from unittest.mock import Mock
         registry = LLMProviderRegistry.get_instance()
         registry.reset()
 
-        # provider that returns node LLM1 and classifies as problem_formulation
+        parse_function = Mock(
+            return_value={
+                "nodes": [{"id": "LLM1", "name": "LLM1"}],
+                "products": [],
+                "suppliers": [],
+                "consumers": [],
+                "transport_links": [],
+                "technologies": [],
+                "bids": [],
+            }
+        )
         provider = RuleBasedProvider(
             intent_router=Mock(detect_intent=Mock(return_value="problem_formulation")),
-            parse_function=lambda t: {"nodes":[{"id":"LLM1","name":"LLM1"}],"products":[],"suppliers":[],"consumers":[],"transport_links":[],"technologies":[],"bids":[]},
+            parse_function=parse_function,
             generate_function=lambda mode, ctx: "",
         )
         registry.set_provider(provider)
         state = ProblemState()
         result = run_chatbot_session(state, "ignored text", use_llm=True)
-        assert any(n.id == "LLM1" for n in result["state"].nodes)
+        assert result["success"] is False
+        assert "LLM interpretation configuration error" in result["response"]
+        assert not result["state"].nodes
+        parse_function.assert_not_called()
 
         registry.reset()
 
@@ -440,6 +453,7 @@ class TestChatbotEngineLLMIntegration:
         assert result["solver_results"].objective_value == 500.0
         assert "solver-ready" in result["response"].lower()
         assert "objective value" in result["response"].lower()
+        assert "conditional on the interpreted formulation" in result["response"].lower()
 
     def test_incomplete_prose_returns_missing_information_feedback(self, monkeypatch):
         plan = {

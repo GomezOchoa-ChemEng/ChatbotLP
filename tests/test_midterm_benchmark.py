@@ -338,6 +338,7 @@ def test_incomplete_prompt_is_not_solver_ready_or_flags_missing_information():
         config=MidtermBenchmarkConfig(
             prompt_ids=("incomplete",),
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_reference_fixture=True,
             attempt_solve=False,
             run_reasoning=False,
@@ -348,6 +349,33 @@ def test_incomplete_prompt_is_not_solver_ready_or_flags_missing_information():
     assert case["solver_ready"] is False
     assert case["validation_result"]["missing_parameters"]
     assert "missing capacity" in "; ".join(case["validation_result"]["missing_parameters"])
+
+
+def test_midterm_live_missing_api_key_does_not_use_reference_fixture(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+
+    report = run_midterm_manure_q1_benchmark(
+        config=MidtermBenchmarkConfig(
+            prompt_ids=("canonical",),
+            use_llm=True,
+            fallback_to_reference_fixture=True,
+            attempt_solve=False,
+            run_reasoning=False,
+        )
+    )
+    case = report["cases"][0]
+    metadata = case["interpretation_metadata"]
+    summary = report["tables"]["case_summary"].iloc[0]
+
+    assert case["problem_state_created"] is False
+    assert metadata["evaluation_mode"] == "live_llm"
+    assert metadata["live_llm_attempted"] is True
+    assert metadata["deterministic_fixture_used"] is False
+    assert metadata["failure_type"] == "llm_not_configured"
+    assert case["primary_metrics"]["primary_success"] is False
+    assert bool(summary["primary_success"]) is False
+    assert summary["failure_type"] == "llm_not_configured"
 
 
 @pytest.mark.parametrize(
@@ -1941,6 +1969,7 @@ def test_q4_benchmark_runner_includes_technology_table_without_llm(monkeypatch):
         config=MidtermBenchmarkConfig(
             prompt_ids=("canonical", "paraphrased"),
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_reference_fixture=True,
             run_reasoning=False,
         )
@@ -1982,6 +2011,7 @@ def test_midterm_deterministic_canonical_fixtures_pass_primary_flags(runner, exp
         config=MidtermBenchmarkConfig(
             prompt_ids=("canonical",),
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_reference_fixture=True,
             run_reasoning=False,
         )
@@ -2002,6 +2032,7 @@ def test_q4_deterministic_canonical_and_paraphrased_fixtures_pass_primary_flags(
         config=MidtermBenchmarkConfig(
             prompt_ids=("canonical", "paraphrased"),
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_reference_fixture=True,
             run_reasoning=False,
         )
@@ -2045,6 +2076,7 @@ def test_q3_benchmark_runner_includes_removal_incentive_table_without_llm(monkey
         config=MidtermBenchmarkConfig(
             prompt_ids=("canonical", "paraphrased"),
             use_llm=False,
+            use_deterministic_fixture=True,
             fallback_to_reference_fixture=True,
             run_reasoning=False,
         )

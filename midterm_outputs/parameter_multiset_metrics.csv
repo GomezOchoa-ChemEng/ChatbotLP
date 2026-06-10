@@ -1,0 +1,13 @@
+prompt_id,metric,expected,actual,pass,details
+canonical,supplier_capacities,[1000.0],[1000.0],True,
+canonical,consumer_capacities,"[500.0, 500.0]","[500.0, 500.0]",True,
+canonical,consumer_bid_prices,"[-0.5, 1.5]","[-0.5, 1.5]",True,
+canonical,supplier_bid_prices,[0.0],[0.0],True,
+canonical,transport_costs,"[0.1, 0.2]","[0.1, 0.2]",True,
+canonical,transport_capacities,"[1000.0, 1000.0]","[1000.0, 1000.0]",True,Transport capacities are required by the reference formulation.
+paraphrased,supplier_capacities,[1000.0],[1000.0],True,
+paraphrased,consumer_capacities,"[500.0, 500.0]","[500.0, 500.0]",True,
+paraphrased,consumer_bid_prices,"[-0.5, 1.5]","[-0.5, 1.5]",True,
+paraphrased,supplier_bid_prices,[0.0],[0.0],True,
+paraphrased,transport_costs,"[0.1, 0.2]","[0.1, 0.2]",True,
+paraphrased,transport_capacities,"[1000.0, 1000.0]","[1000.0, 1000.0]",True,Transport capacities are required by the reference formulation.

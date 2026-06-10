@@ -102,7 +102,7 @@ class StateManager:
                 try:
                     obj = Model.parse_obj(item) if isinstance(item, dict) else Model.parse_obj(item)
                 except Exception:
-                    # fallback: try to pass through (may raise later)
+                    # Preserve the caller-provided object; validation may raise later.
                     obj = item
                 add_fn(obj)
 
@@ -135,6 +135,8 @@ class StateManager:
                 missing.append(f"supplier:{s.id} missing node {s.node}")
             if s.product not in product_ids:
                 missing.append(f"supplier:{s.id} missing product {s.product}")
+            if s.capacity is None:
+                missing.append(f"supplier:{s.id} missing capacity")
 
         # consumers
         for c in self.state.consumers:
@@ -142,6 +144,8 @@ class StateManager:
                 missing.append(f"consumer:{c.id} missing node {c.node}")
             if c.product not in product_ids:
                 missing.append(f"consumer:{c.id} missing product {c.product}")
+            if c.capacity is None:
+                missing.append(f"consumer:{c.id} missing capacity")
 
         # transport
         for t in self.state.transport_links:
@@ -151,14 +155,26 @@ class StateManager:
                 missing.append(f"transport:{t.id} missing destination {t.destination}")
             if t.product not in product_ids:
                 missing.append(f"transport:{t.id} missing product {t.product}")
+            if t.capacity is None:
+                missing.append(f"transport:{t.id} missing capacity")
+            if t.cost is None:
+                missing.append(f"transport:{t.id} missing cost")
 
         # technologies
         for tech in self.state.technologies:
             if tech.node not in node_ids:
                 missing.append(f"technology:{tech.id} missing node {tech.node}")
-            for pid in tech.yield_coefficients.keys():
+            if tech.capacity is None:
+                missing.append(f"technology:{tech.id} missing capacity")
+            if tech.cost is None:
+                missing.append(f"technology:{tech.id} missing cost")
+            if not tech.yield_coefficients:
+                missing.append(f"technology:{tech.id} missing input/output yield")
+            for pid, coefficient in tech.yield_coefficients.items():
                 if pid not in product_ids:
                     missing.append(f"technology:{tech.id} unknown product in yields: {pid}")
+                if coefficient is None:
+                    missing.append(f"technology:{tech.id} missing yield for {pid}")
 
         # bids
         owner_sets = {
@@ -176,6 +192,10 @@ class StateManager:
                 missing.append(f"bid:{b.id} owner {b.owner_id} not found in {b.owner_type}")
             if b.product_id not in product_ids:
                 missing.append(f"bid:{b.id} unknown product {b.product_id}")
+            if b.price is None:
+                missing.append(f"bid:{b.id} missing price")
+            if b.quantity is None:
+                missing.append(f"bid:{b.id} missing quantity")
 
         # store diagnostics
         self.state.missing_parameters = missing

@@ -1,0 +1,120 @@
+{
+  "benchmark_id": "hw2_plastic_waste",
+  "source_pdf": "docs/hw2_supply_chains_spring2022.pdf",
+  "units": {
+    "mass_flow": "ton/year",
+    "cost": "dollars/ton",
+    "fixed_cost": "dollars/year"
+  },
+  "nodes": ["MAD", "MKE"],
+  "products": ["PlasticWaste", "PyrolysisOil", "Ethylene"],
+  "supply": {
+    "MAD": {
+      "product": "PlasticWaste",
+      "capacity": 33100.0,
+      "cost": 0.0
+    },
+    "MKE": {
+      "product": "PlasticWaste",
+      "capacity": 77300.0,
+      "cost": 0.0
+    }
+  },
+  "demand": {
+    "MAD": {
+      "product": "Ethylene",
+      "capacity": 100000.0,
+      "willingness_to_pay": 1050.0
+    },
+    "MKE": {
+      "product": "Ethylene",
+      "capacity": 100000.0,
+      "willingness_to_pay": 1050.0
+    }
+  },
+  "transport": {
+    "directions": [["MAD", "MKE"], ["MKE", "MAD"]],
+    "products": ["PlasticWaste", "PyrolysisOil", "Ethylene"],
+    "capacity": 100000.0,
+    "cost": 10.0
+  },
+  "technologies": {
+    "Pyrolysis": {
+      "candidate_nodes": ["MAD", "MKE"],
+      "capacity": 100000.0,
+      "operating_cost": 14.0,
+      "fixed_cost": 2000000.0,
+      "yield_coefficients": {
+        "PlasticWaste": -1.0,
+        "PyrolysisOil": 0.7
+      }
+    },
+    "SteamCracking": {
+      "candidate_nodes": ["MAD", "MKE"],
+      "capacity": 100000.0,
+      "operating_cost": 71.0,
+      "fixed_cost": 2800000.0,
+      "yield_coefficients": {
+        "PyrolysisOil": -1.0,
+        "Ethylene": 0.25
+      }
+    }
+  },
+  "expected_design_solution": {
+    "objective_value": 6978000.0,
+    "selected_technologies": {
+      "Pyrolysis_MKE": 1.0,
+      "SteamCracking_MKE": 1.0
+    },
+    "technology_activities": {
+      "Pyrolysis_MAD": 0.0,
+      "Pyrolysis_MKE": 100000.0,
+      "SteamCracking_MAD": 0.0,
+      "SteamCracking_MKE": 70000.0
+    },
+    "accepted_supply": {
+      "S_MAD_PlasticWaste": 22700.0,
+      "S_MKE_PlasticWaste": 77300.0
+    },
+    "accepted_demand": {
+      "C_MAD_Ethylene": 0.0,
+      "C_MKE_Ethylene": 17500.0
+    },
+    "transport_flows": {
+      "T_MAD_to_MKE_PlasticWaste": 22700.0,
+      "T_MKE_to_MAD_PlasticWaste": 0.0,
+      "T_MAD_to_MKE_PyrolysisOil": 0.0,
+      "T_MKE_to_MAD_PyrolysisOil": 0.0,
+      "T_MAD_to_MKE_Ethylene": 0.0,
+      "T_MKE_to_MAD_Ethylene": 0.0
+    },
+    "objective_decomposition": {
+      "demand_revenue": 18375000.0,
+      "supplier_cost": 0.0,
+      "transport_cost": 227000.0,
+      "operating_cost": 6370000.0,
+      "investment_cost": 4800000.0,
+      "total_profit": 6978000.0
+    },
+    "total_available_plastic_waste": 110400.0,
+    "total_recycled_plastic_waste": 100000.0,
+    "total_unprocessed_plastic_waste": 10400.0
+  },
+  "expected_fixed_design_prices": {
+    "MAD:PlasticWaste": 0.0,
+    "MAD:PyrolysisOil": 201.5,
+    "MAD:Ethylene": 1050.0,
+    "MKE:PlasticWaste": 10.0,
+    "MKE:PyrolysisOil": 191.5,
+    "MKE:Ethylene": 1050.0
+  },
+  "expected_full_recycling_threshold": {
+    "ethylene_wtp_approx": 1465.485,
+    "selected_technologies": {
+      "Pyrolysis_MAD": 1.0,
+      "Pyrolysis_MKE": 1.0,
+      "SteamCracking_MKE": 1.0
+    },
+    "total_recycled_plastic_waste": 110400.0
+  }
+}
