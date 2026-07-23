@@ -100,7 +100,7 @@ class StateManager:
             for item in payload:
                 Model = mapping[key][1]
                 try:
-                    obj = Model.parse_obj(item) if isinstance(item, dict) else Model.parse_obj(item)
+                    obj = Model.model_validate(item)
                 except Exception:
                     # Preserve the caller-provided object; validation may raise later.
                     obj = item

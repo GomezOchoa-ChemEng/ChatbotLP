@@ -10,8 +10,8 @@ Case C: transformation).
 """
 
 from typing import Any, Dict, List, Optional, Literal
-from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field, field_validator
 
 
 # ------------------------------------------------
@@ -44,7 +44,8 @@ class Bid(BaseModel):
     price: Optional[float] = None
     quantity: Optional[float] = None
 
-    @validator("price")
+    @field_validator("price")
+    @classmethod
     def price_is_finite(cls, v):
         if v is None:
             return v
@@ -75,7 +76,8 @@ class TransportLink(BaseModel):
     capacity: Optional[float] = None
     cost: Optional[float] = None
 
-    @validator("cost")
+    @field_validator("cost")
+    @classmethod
     def cost_is_finite(cls, v):
         if v is None:
             return v
@@ -162,7 +164,7 @@ class TheoremCheck(BaseModel):
 class ScenarioRecord(BaseModel):
     name: str
     description: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BenchmarkMetadata(BaseModel):
@@ -293,8 +295,8 @@ class ProblemState(BaseModel):
         self.scenario_history.append(record)
 
     def to_dict(self) -> Dict:
-        return self.dict()
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ProblemState":
-        return cls.parse_obj(data)
+        return cls.model_validate(data)

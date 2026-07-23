@@ -13,6 +13,7 @@ from src.schema import (
     TransportLink,
     Technology,
     Bid,
+    ScenarioRecord,
 )
 
 
@@ -46,3 +47,18 @@ def test_bid_model():
     state.add_bid(b)
     assert state.bids[0].price == -3.5
     assert state.bids[0].owner_type == "supplier"
+
+
+def test_scenario_timestamp_is_timezone_aware():
+    record = ScenarioRecord(name="baseline")
+
+    assert record.timestamp.utcoffset() is not None
+
+
+def test_problem_state_dict_roundtrip_uses_pydantic_v2_api():
+    state = ProblemState(problem_title="Roundtrip")
+    state.add_node(Node(id="n1"))
+
+    restored = ProblemState.from_dict(state.to_dict())
+
+    assert restored == state

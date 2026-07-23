@@ -408,7 +408,7 @@ def build_formal_math_context(
         supporting_equations=supporting_equations,
         source_notes=source_notes,
         semantic_plan=semantic_plan,
-        problem_state_snapshot=state.dict(),
+        problem_state_snapshot=state.model_dump(),
         latex_mode="align" if semantic_plan["response_contract"]["prefer_latex"] else "plain",
         pedagogical_mode=pedagogical_mode,
         user_request=user_message,

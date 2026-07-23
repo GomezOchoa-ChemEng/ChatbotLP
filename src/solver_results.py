@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -15,7 +15,7 @@ from .schema import MarketInstance, ProblemState
 class SolverResults(BaseModel):
     """Compact machine-facing results object for solved market instances."""
 
-    solve_timestamp: datetime = Field(default_factory=datetime.utcnow)
+    solve_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     solver_name: str = "unknown"
     solver_status: str
     termination_condition: str
@@ -34,7 +34,7 @@ class SolverResults(BaseModel):
     scenario_metadata: Dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return self.dict()
+        return self.model_dump()
 
     @classmethod
     def from_solve_result(cls, solve_result: Any, problem_state: ProblemState) -> "SolverResults":
